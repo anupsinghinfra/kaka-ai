@@ -1,0 +1,5 @@
+packages:
+  - infra
+  - services/*
+  - contracts
+  - libs/*

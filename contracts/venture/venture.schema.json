@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.platform.internal/venture/venture.schema.json",
+  "title": "VentureManifest",
+  "description": "venture.yaml schema v0 (EXECUTION.md M0 item 5): the declarative record of a venture — its spec, code, data, deployments, and budgets.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "description": "Version of this manifest schema.",
+      "const": "0"
+    },
+    "ventureId": {
+      "description": "Stable platform-wide venture identifier.",
+      "type": "string",
+      "pattern": "^venture-[a-z0-9][a-z0-9-]{1,61}$"
+    },
+    "name": {
+      "description": "Human-readable venture name.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "spec": {
+      "description": "Reference to the living spec document inside the venture repo.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "description": "Repo-relative path to the spec document.",
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": ["ref"],
+      "additionalProperties": false
+    },
+    "repo": {
+      "description": "Reference to the venture's FileSystem-primitive repository.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "description": "FileSystem primitive repo identifier.",
+          "type": "string",
+          "minLength": 1
+        },
+        "defaultBranch": {
+          "type": "string",
+          "minLength": 1,
+          "default": "main"
+        }
+      },
+      "required": ["ref"],
+      "additionalProperties": false
+    },
+    "db": {
+      "description": "Reference to the venture's Database-primitive instance.",
+      "type": "object",
+      "properties": {
+        "ref": {
+          "description": "Database primitive instance identifier.",
+          "type": "string",
+          "minLength": 1
+        },
+        "provider": {
+          "description": "Database provider behind the contract.",
+          "type": "string",
+          "enum": ["embedded", "postgres"]
+        }
+      },
+      "required": ["ref", "provider"],
+      "additionalProperties": false
+    },
+    "deployments": {
+      "description": "Active deployments (branch triples: code + db branch + URL).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "deployId": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["preview", "prod"]
+          },
+          "codeRef": {
+            "description": "FileSystem branch/commit ref this deployment serves.",
+            "type": "string",
+            "minLength": 1
+          },
+          "dbBranchRef": {
+            "description": "Database branch backing this deployment.",
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          }
+        },
+        "required": ["deployId", "kind", "codeRef", "dbBranchRef", "url"],
+        "additionalProperties": false
+      }
+    },
+    "budgets": {
+      "description": "Spend ceilings enforced by policy; agents cannot exceed them.",
+      "type": "object",
+      "properties": {
+        "monthlyUsd": {
+          "description": "Total monthly spend ceiling in USD.",
+          "type": "number",
+          "minimum": 0
+        },
+        "perPrimitive": {
+          "description": "Optional per-primitive monthly ceilings in USD, keyed by primitive name (e.g. \"email\", \"domains\").",
+          "type": "object",
+          "additionalProperties": {
+            "type": "number",
+            "minimum": 0
+          }
+        }
+      },
+      "required": ["monthlyUsd"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["schemaVersion", "ventureId", "name", "spec", "repo", "db", "deployments", "budgets"],
+  "additionalProperties": false
+}

@@ -1,0 +1,22 @@
+{
+  "name": "@platform/authorizer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Capability-token authorizer library: JWT verification (public-key only, zero AWS deps) and scope matching per contracts/tokens/scope-grammar.md. Deny-by-default.",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "dependencies": {
+    "jose": "^4.15.9"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.17.9",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.7.2"
+  }
+}

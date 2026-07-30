@@ -1,0 +1,35 @@
+{
+  "name": "@platform/registry",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Venture registry service: CRUD over venture records (manifest per contracts/venture/venture.schema.json) behind capability-token authorization; every mutation lands on the platform event bus (EXECUTION.md M0 item 5).",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "bundle": "esbuild src/lambda.ts --bundle --platform=node --target=node20 --format=cjs --sourcemap --outfile=dist-lambda/index.js"
+  },
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.716.0",
+    "@aws-sdk/client-eventbridge": "^3.716.0",
+    "@aws-sdk/client-kms": "^3.716.0",
+    "@aws-sdk/lib-dynamodb": "^3.716.0",
+    "@platform/authorizer": "workspace:*",
+    "@platform/contracts": "workspace:*",
+    "@platform/events": "workspace:*",
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1",
+    "pino": "^9.5.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "^8.10.146",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.17.9",
+    "esbuild": "^0.24.2",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.7.2"
+  }
+}

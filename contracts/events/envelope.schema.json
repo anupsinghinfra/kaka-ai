@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://contracts.platform.internal/events/envelope.schema.json",
+  "title": "EventEnvelope",
+  "description": "Envelope for every event on the platform bus. Payload shape is event-type specific; the envelope is universal.",
+  "type": "object",
+  "properties": {
+    "id": {
+      "description": "Globally unique event ID (UUID).",
+      "type": "string",
+      "format": "uuid"
+    },
+    "type": {
+      "description": "Dot-delimited event type, e.g. \"venture.created\" or \"deploy.promoted\".",
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+$"
+    },
+    "ventureId": {
+      "description": "Venture the event belongs to; \"platform\" for platform-level events.",
+      "type": "string",
+      "minLength": 1
+    },
+    "timestamp": {
+      "description": "Event creation time, RFC 3339 / ISO 8601 UTC.",
+      "type": "string",
+      "format": "date-time"
+    },
+    "source": {
+      "description": "Emitting component, e.g. \"registry\", \"builder-agent\", \"token-service\".",
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "description": "Event-type-specific payload.",
+      "type": "object"
+    }
+  },
+  "required": ["id", "type", "ventureId", "timestamp", "source", "payload"],
+  "additionalProperties": false
+}

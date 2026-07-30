@@ -1,0 +1,14 @@
+{
+  "name": "@platform/root",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Autonomous venture platform — monorepo root. See ARCHITECTURE.md, PLAN.md, EXECUTION.md.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "synth": "pnpm --dir infra synth"
+  }
+}
