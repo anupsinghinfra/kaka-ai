@@ -18,3 +18,6 @@ coverage/
 
 # Editor / OS
 .DS_Store
+
+# External reference clone (not project code)
+ECC/
