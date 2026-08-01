@@ -19,6 +19,15 @@
   --amplify-colors-font-focus: #d4a54a;
   --amplify-colors-font-active: #d4a54a;
   --amplify-colors-font-error: #d96a6a;
+  /* Neutral scale inverted for dark: several Authenticator texts (e.g. the
+     "We Emailed You" description) color from neutrals, not font tokens. */
+  --amplify-colors-neutral-10: #1a1815;
+  --amplify-colors-neutral-20: #26231e;
+  --amplify-colors-neutral-40: #5c574d;
+  --amplify-colors-neutral-60: #8f887a;
+  --amplify-colors-neutral-80: #c9c2b4;
+  --amplify-colors-neutral-90: #e3ddd0;
+  --amplify-colors-neutral-100: #f0eadd;
   --amplify-colors-border-primary: #26231e;
   --amplify-colors-border-secondary: #26231e;
   --amplify-colors-border-tertiary: #26231e;
@@ -107,4 +116,14 @@
 [data-amplify-authenticator] .amplify-alert--error {
   border: 1px solid rgba(217, 106, 106, 0.5);
   border-radius: 0.5rem;
+}
+
+/* Safety net: any Amplify text that still resolves to a dark default gets a
+   readable color on our dark surface. */
+[data-amplify-authenticator] .amplify-text,
+[data-amplify-authenticator] p {
+  color: #c9c2b4;
+}
+[data-amplify-authenticator] .amplify-heading {
+  color: #f0eadd;
 }
