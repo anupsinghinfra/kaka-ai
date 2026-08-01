@@ -176,6 +176,10 @@ export async function runBuilderAgentPass(
   const run = `run-${randomUUID()}`
   let invokeFailure: unknown
   // Fire the task; the agent reports through the cell, not the invocation.
+  // The invocation response is expendable: agent runs outlive the edge's
+  // idle timeout (the ALB 504s at ~60s while the run keeps executing on the
+  // host), so a failed/timed-out invoke only matters if progress never
+  // appears — give the run a grace window before declaring it dead.
   void oncell
     .invokeAgentTask(agentName, kind, {
       cell_id: idea.cellId,
@@ -186,12 +190,14 @@ export async function runBuilderAgentPass(
       invokeFailure = error
     })
 
-  const deadline = Date.now() + timeoutMs
+  const invokeGraceMs = Number(process.env.KAKA_AGENT_INVOKE_GRACE_MS || 120_000)
+  const started = Date.now()
+  const deadline = started + timeoutMs
   let observations: RunObservations = {}
   let relayed = 0
 
   while (Date.now() < deadline) {
-    if (invokeFailure !== undefined) {
+    if (invokeFailure !== undefined && relayed === 0 && Date.now() - started > invokeGraceMs) {
       emitAgentUnavailable(emit, 'invoked', invokeFailure)
       return
     }

@@ -145,6 +145,7 @@ describe('agent-mode build and improve routes', () => {
     delete process.env.KAKA_HOME
     delete process.env.KAKA_AGENT_POLL_MS
     delete process.env.KAKA_AGENT_RUN_TIMEOUT_MS
+    delete process.env.KAKA_AGENT_INVOKE_GRACE_MS
     rmSync(home, { recursive: true, force: true })
   })
 
@@ -339,7 +340,9 @@ describe('agent-mode build and improve routes', () => {
   })
 
   test('a failed invocation surfaces AGENT_UNAVAILABLE', async () => {
-    // Arrange
+    // Arrange — grace window elapsed with no progress: invoke failures are
+    // otherwise tolerated (the run outlives the edge's idle timeout).
+    process.env.KAKA_AGENT_INVOKE_GRACE_MS = '10'
     addIdea(draftIdea())
     mockClient.deployAgent.mockResolvedValue({ agentName: 'builder-acme', version: 1 })
     mockClient.snapshotCell.mockResolvedValue({ snapshot_key: 'snap-1' })
