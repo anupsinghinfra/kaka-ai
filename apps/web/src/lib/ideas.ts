@@ -4,6 +4,8 @@
  */
 
 import type { CellRecord } from '@platform/oncell'
+import { deployBuilderAgent } from './builder-agent/deploy'
+import { builderMode } from './builder-agent/mode'
 import { getOnCell } from './oncell'
 import {
   addIdea,
@@ -72,6 +74,16 @@ export async function createIdea(name: string, idea: string | undefined): Promis
   const cell = await client.createCell({ customerId })
   const createdAt = new Date().toISOString()
   await seedCellIdentity(cell.cell_id, name, idea, createdAt)
+  if (builderMode() === 'agent') {
+    // Deploy is cheap, so the Builder exists from the idea's first breath.
+    // Failure is deliberately non-fatal here: the cell and registry entry
+    // are already real, and every build/improve run re-deploys anyway.
+    try {
+      await deployBuilderAgent(client, name, idea ?? '')
+    } catch {
+      // Re-ensured before every run — see runBuilderAgentPass.
+    }
+  }
   const record: Idea = {
     name,
     cellId: cell.cell_id,

@@ -15,9 +15,11 @@ import { JournalPanel } from '@/components/JournalPanel'
 import { SnapshotsPanel, type SnapshotView } from '@/components/SnapshotsPanel'
 import { StatusBadge } from '@/components/StatusBadge'
 import { UnderTheHood } from '@/components/UnderTheHood'
+import { builderMode } from '@/lib/builder-agent/mode'
+import { readAutoImproveState, syncIterationsFromCell, type AutoImproveState } from '@/lib/builder-agent/sync'
 import { fetchCellStatus } from '@/lib/ideas'
 import { getOnCell, isBuilderConfigured } from '@/lib/oncell'
-import { getIdea } from '@/lib/registry'
+import { getIdea, type Idea } from '@/lib/registry'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,17 +55,39 @@ function formatDate(iso: string): string {
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleString()
 }
 
+/**
+ * Agent mode: adopt the cell's iteration timeline (the Builder improves
+ * while no browser is open) and read the auto-improve state. Best-effort —
+ * an unreachable cell falls back to the registry as-is.
+ */
+async function agentModeState(registryIdea: Idea): Promise<{ idea: Idea; auto: AutoImproveState }> {
+  if (builderMode() !== 'agent' || !isBuilderConfigured()) {
+    return { idea: registryIdea, auto: { auto: 'off' } }
+  }
+  try {
+    const oncell = getOnCell()
+    const [synced, auto] = await Promise.all([
+      syncIterationsFromCell(oncell, registryIdea),
+      readAutoImproveState(oncell, registryIdea.cellId)
+    ])
+    return { idea: synced, auto }
+  } catch {
+    return { idea: registryIdea, auto: { auto: 'off' } }
+  }
+}
+
 export default async function IdeaPage({ params }: IdeaPageProps) {
   const { name } = await params
-  const idea = getIdea(decodeURIComponent(name))
-  if (idea === undefined) {
+  const registryIdea = getIdea(decodeURIComponent(name))
+  if (registryIdea === undefined) {
     notFound()
   }
 
-  const [status, snapshots, builderReady] = await Promise.all([
-    fetchCellStatus(idea.cellId),
-    mergedSnapshots(idea.cellId, idea.snapshots),
-    Promise.resolve(isBuilderConfigured())
+  const [status, snapshots, builderReady, { idea, auto }] = await Promise.all([
+    fetchCellStatus(registryIdea.cellId),
+    mergedSnapshots(registryIdea.cellId, registryIdea.snapshots),
+    Promise.resolve(isBuilderConfigured()),
+    agentModeState(registryIdea)
   ])
 
   return (
@@ -73,6 +97,8 @@ export default async function IdeaPage({ params }: IdeaPageProps) {
         {...(idea.idea !== undefined ? { idea: idea.idea } : {})}
         {...(idea.liveUrl !== undefined ? { liveUrl: idea.liveUrl } : {})}
         {...(idea.serviceError !== undefined ? { serviceError: idea.serviceError } : {})}
+        autoImprove={auto.auto === 'on'}
+        {...(auto.nextWakeAt !== undefined ? { nextWakeAt: auto.nextWakeAt } : {})}
         builderReady={builderReady}
         iterations={idea.iterations.map((iteration) => ({
           v: iteration.v,

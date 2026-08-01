@@ -19,10 +19,17 @@ export function getOnCell(): OnCellClient {
   return cachedClient
 }
 
-/** True when the Builder can run (ANTHROPIC_API_KEY is configured). */
+/**
+ * True when the Builder can run. Agent mode (the default) needs only the
+ * OnCell API key — the agent generates code through OnCell's metered LLM
+ * gateway, so ANTHROPIC_API_KEY is merely the local-mode fallback.
+ */
 export function isBuilderConfigured(): boolean {
   loadRepoEnv()
-  const key = process.env.ANTHROPIC_API_KEY
+  const key =
+    process.env.KAKA_BUILDER_MODE === 'local'
+      ? process.env.ANTHROPIC_API_KEY
+      : process.env.ONCELL_API_KEY
   return key !== undefined && key.length > 0
 }
 

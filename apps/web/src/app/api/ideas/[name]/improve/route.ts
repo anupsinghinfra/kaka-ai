@@ -1,20 +1,52 @@
 /**
- * POST /api/ideas/[name]/improve — run one auto-improve iteration and
- * stream NDJSON progress events: {stage: reading|snapshotting|generating|
- * writing|file|verifying|starting}, then {stage: live, url} once the app
- * is served, then {stage: done, result} or {stage: error, error}. A failed
- * app start is non-fatal: the done event carries result.serviceError.
+ * POST /api/ideas/[name]/improve — one improvement iteration, streamed as
+ * NDJSON stage events, then {stage: done, result} or {stage: error, error}.
+ *
+ * Agent mode (default): the idea's Builder agent on OnCell runs the
+ * improvement (its "improve" task/skill); this route deploys it, snapshots
+ * the cell as the rollback point, fires the task, and relays progress from
+ * the cell's kv. Local mode (KAKA_BUILDER_MODE=local): the original
+ * in-process Anthropic flow, kept as an explicit escape hatch.
  */
 
 import { jsonError, ndjsonResponse } from '@/lib/api'
+import { builderMode } from '@/lib/builder-agent/mode'
+import { runBuilderAgentPass } from '@/lib/builder-agent/orchestrate'
 import { NothingToImproveError, runImprove, type ImproveEvent } from '@/lib/builder/improve'
 import { restartAppService } from '@/lib/builder/service'
 import { getOnCell, isBuilderConfigured } from '@/lib/oncell'
-import { currentVersion, getIdea } from '@/lib/registry'
+import { currentVersion, getIdea, type Idea } from '@/lib/registry'
 
 export const dynamic = 'force-dynamic'
 
 type RouteContext = { params: Promise<{ name: string }> }
+
+/** The pre-agent local improve flow, unchanged (KAKA_BUILDER_MODE=local). */
+function localImproveResponse(idea: Idea, ideaText: string): Response {
+  return ndjsonResponse(async (emit) => {
+    try {
+      const result = await runImprove(idea, ideaText, (event: ImproveEvent) => emit(event))
+      // The payoff: (re)start the app service so the update is live.
+      emit({ stage: 'starting' })
+      const service = await restartAppService(getOnCell(), idea)
+      if (service.ok) {
+        emit({ stage: 'live', url: service.liveUrl })
+        emit({ stage: 'done', result: { ...result, liveUrl: service.liveUrl } })
+        return
+      }
+      emit({ stage: 'done', result: { ...result, serviceError: service.serviceError } })
+    } catch (error: unknown) {
+      if (error instanceof NothingToImproveError) {
+        emit({
+          stage: 'error',
+          error: { code: 'NOT_BUILT_YET', message: error.message }
+        })
+        return
+      }
+      throw error
+    }
+  })
+}
 
 export async function POST(_request: Request, context: RouteContext): Promise<Response> {
   const { name } = await context.params
@@ -39,35 +71,23 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
     )
   }
   if (!isBuilderConfigured()) {
-    return jsonError(
-      'ANTHROPIC_KEY_MISSING',
-      'improving needs an Anthropic API key',
-      503,
-      'Add ANTHROPIC_API_KEY to the repo-root .env.'
-    )
+    return builderMode() === 'local'
+      ? jsonError(
+          'ANTHROPIC_KEY_MISSING',
+          'improving locally needs an Anthropic API key',
+          503,
+          'Add ANTHROPIC_API_KEY to the repo-root .env.'
+        )
+      : jsonError(
+          'ONCELL_KEY_MISSING',
+          'improving needs an OnCell API key',
+          503,
+          'Add ONCELL_API_KEY to the repo-root .env.'
+        )
   }
 
-  return ndjsonResponse(async (emit) => {
-    try {
-      const result = await runImprove(idea, ideaText, (event: ImproveEvent) => emit(event))
-      // The payoff: (re)start the app service so the update is live.
-      emit({ stage: 'starting' })
-      const service = await restartAppService(getOnCell(), idea)
-      if (service.ok) {
-        emit({ stage: 'live', url: service.liveUrl })
-        emit({ stage: 'done', result: { ...result, liveUrl: service.liveUrl } })
-        return
-      }
-      emit({ stage: 'done', result: { ...result, serviceError: service.serviceError } })
-    } catch (error: unknown) {
-      if (error instanceof NothingToImproveError) {
-        emit({
-          stage: 'error',
-          error: { code: 'NOT_BUILT_YET', message: error.message }
-        })
-        return
-      }
-      throw error
-    }
-  })
+  if (builderMode() === 'local') {
+    return localImproveResponse(idea, ideaText)
+  }
+  return ndjsonResponse((emit) => runBuilderAgentPass(idea, ideaText, 'improve', emit))
 }

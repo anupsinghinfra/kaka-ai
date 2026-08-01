@@ -26,12 +26,19 @@ export {
   type FetchRequestInit,
   type FetchResponseLike
 } from './http'
+export type { AgentApi } from './agent-api'
 export type { RequestApi } from './request-helpers'
 export {
+  type AgentDeployRecord,
+  type AgentManifest,
+  type AgentManifestBudgets,
+  type AgentManifestIdentity,
+  type AgentManifestSkill,
   type CellRecord,
   type CellRequestMethod,
   type CellTier,
   type CreateCellInput,
+  type DeployAgentInput,
   type ExecInput,
   type ExecResult,
   type ForkCellInput,

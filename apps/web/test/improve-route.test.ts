@@ -140,11 +140,14 @@ describe('POST /api/ideas/[name]/improve', () => {
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'kaka-improve-'))
     process.env.KAKA_HOME = home
+    // These tests exercise the local (in-process Anthropic) escape hatch.
+    process.env.KAKA_BUILDER_MODE = 'local'
     vi.clearAllMocks()
   })
 
   afterEach(() => {
     delete process.env.KAKA_HOME
+    delete process.env.KAKA_BUILDER_MODE
     rmSync(home, { recursive: true, force: true })
   })
 

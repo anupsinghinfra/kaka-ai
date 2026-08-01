@@ -4,8 +4,11 @@
  * The idea page's core loop: editable idea text, product status pill, the
  * live product URL (the payoff), one primary action (Build v1 → Improve),
  * the auto-improve toggle, and the iteration timeline. Build and improve
- * stream NDJSON stage events from the API; while a run is active a live
- * activity feed takes over the timeline area so progress dominates.
+ * stream NDJSON stage events from the API (relayed from the Builder
+ * agent's in-cell progress); while a run is active a live activity feed
+ * takes over the timeline area so progress dominates. Auto-improve is
+ * durable and server-side — the Builder agent schedules its own wakes in
+ * OnCell, so the browser can close; the toggle just flips the cell's flag.
  */
 
 import { useRouter } from 'next/navigation'
@@ -26,6 +29,10 @@ interface IdeaWorkspaceProps {
   iterations: IterationView[]
   liveUrl?: string
   serviceError?: string
+  /** Server-read auto-improve flag from the idea cell's kv (kaka:auto). */
+  autoImprove?: boolean
+  /** ISO timestamp of the Builder's next self-scheduled wake, when known. */
+  nextWakeAt?: string
 }
 
 interface CheckView {
@@ -39,6 +46,7 @@ interface StreamEvent {
   files?: number
   path?: string
   url?: string
+  wakeAt?: string
   result?: {
     iteration?: IterationView
     summary?: string
@@ -59,17 +67,17 @@ interface RunState {
   targetV: number
 }
 
-const AUTO_MAX_RUNS_PER_SESSION = 10
-const AUTO_PAUSE_MS = 2500
-
 const BUILD_STAGE_LABELS: Record<string, string> = {
-  generating: 'Claude is writing your v1…',
+  preparing: 'Waking your Builder agent…',
+  snapshotting: 'Saving a restore point…',
+  generating: 'Your Builder is writing v1…',
   writing: 'Shipping the code into your workspace…',
   verifying: 'Proving it runs…',
   starting: 'Starting your app…'
 }
 
 const IMPROVE_STAGE_LABELS: Record<string, string> = {
+  preparing: 'Waking your Builder agent…',
   reading: 'Reading the current app…',
   snapshotting: 'Saving a restore point…',
   generating: 'Finding the most valuable improvement…',
@@ -94,6 +102,11 @@ function feedText(kind: RunKind, event: StreamEvent, targetV: number): string | 
   if (event.stage === 'live') {
     return event.url !== undefined ? `Live at ${event.url} ↗` : undefined
   }
+  if (event.stage === 'scheduled') {
+    return event.wakeAt !== undefined
+      ? `Next improvement scheduled for ${formatAt(event.wakeAt)}`
+      : 'Next improvement scheduled'
+  }
   if (event.stage === 'done') {
     return event.result?.serviceError !== undefined
       ? `v${targetV} shipped — but the app did not start`
@@ -116,8 +129,16 @@ function formatAt(at: string): string {
     : date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
+/** Whole minutes until an ISO timestamp; undefined when past or invalid. */
+function minutesUntil(iso: string | undefined): number | undefined {
+  if (iso === undefined) {
+    return undefined
+  }
+  const at = new Date(iso).getTime()
+  if (Number.isNaN(at) || at <= Date.now()) {
+    return undefined
+  }
+  return Math.max(1, Math.round((at - Date.now()) / 60_000))
 }
 
 async function readNdjsonStream(
@@ -154,7 +175,9 @@ export function IdeaWorkspace({
   builderReady,
   iterations: initial,
   liveUrl: initialLiveUrl,
-  serviceError: initialServiceError
+  serviceError: initialServiceError,
+  autoImprove: initialAutoImprove,
+  nextWakeAt: initialNextWakeAt
 }: IdeaWorkspaceProps) {
   const router = useRouter()
   const [iterations, setIterations] = useState<readonly IterationView[]>(initial)
@@ -180,18 +203,15 @@ export function IdeaWorkspace({
   const [isSavingIdea, setIsSavingIdea] = useState(false)
   const [ideaText, setIdeaText] = useState(idea ?? '')
 
-  const [isAutoOn, setIsAutoOn] = useState(false)
-  const [autoRuns, setAutoRuns] = useState(0)
-  const [isKeepGoingPromptVisible, setIsKeepGoingPromptVisible] = useState(false)
+  const [isAutoOn, setIsAutoOn] = useState(initialAutoImprove ?? false)
+  const [nextWakeAt, setNextWakeAt] = useState<string | undefined>(initialNextWakeAt)
+  const [isTogglingAuto, setIsTogglingAuto] = useState(false)
 
-  const autoRef = useRef(false)
-  const loopActiveRef = useRef(false)
   const isMountedRef = useRef(true)
   useEffect(() => {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
-      autoRef.current = false
     }
   }, [])
 
@@ -204,9 +224,11 @@ export function IdeaWorkspace({
     if (run?.kind === 'building') {
       return { label: 'building', tone: 'border-gold/50 bg-gold/10 text-gold' }
     }
-    if (run?.kind === 'improving' || isAutoOn) {
-      const target = run?.targetV ?? version + 1
-      return { label: `improving — v${target}`, tone: 'border-gold/50 bg-gold/10 text-gold' }
+    if (run?.kind === 'improving') {
+      return { label: `improving — v${run.targetV}`, tone: 'border-gold/50 bg-gold/10 text-gold' }
+    }
+    if (isAutoOn) {
+      return { label: 'auto-improving', tone: 'border-gold/50 bg-gold/10 text-gold' }
     }
     if (version === 0) {
       return { label: 'draft', tone: 'border-edge bg-raised text-muted' }
@@ -256,6 +278,11 @@ export function IdeaWorkspace({
             setLiveUrl(event.url)
             setServiceError(undefined)
           }
+          return
+        }
+        if (event.stage === 'scheduled') {
+          // The Builder parked its next wake — surface it, keep the stage.
+          setNextWakeAt(event.wakeAt)
           return
         }
         if (event.stage === 'file') {
@@ -331,55 +358,35 @@ export function IdeaWorkspace({
     await runStreamedPass('improving')
   }
 
-  /** The auto-improve loop: sequential iterations with a breather between. */
-  async function autoLoop(startCount: number): Promise<void> {
-    if (loopActiveRef.current) {
+  /**
+   * Flips the durable auto-improve flag on the idea's cell. The Builder
+   * agent reads it after every run and schedules its own next wake — the
+   * loop lives server-side in OnCell, never in this browser tab.
+   */
+  async function handleAutoToggle(): Promise<void> {
+    if (isTogglingAuto) {
       return
     }
-    loopActiveRef.current = true
-    let runs = startCount
+    const next = isAutoOn ? 'off' : 'on'
+    setIsTogglingAuto(true)
+    setError(undefined)
     try {
-      while (autoRef.current && isMountedRef.current) {
-        if (runs >= AUTO_MAX_RUNS_PER_SESSION) {
-          setIsKeepGoingPromptVisible(true)
-          return
-        }
-        const ok = await runStreamedPass('improving')
-        runs += 1
-        setAutoRuns(runs)
-        if (!ok) {
-          autoRef.current = false
-          setIsAutoOn(false)
-          return
-        }
-        if (autoRef.current) {
-          await sleep(AUTO_PAUSE_MS)
-        }
+      await apiFetch<{ auto: 'on' | 'off' }>(`/api/ideas/${encodeURIComponent(name)}/auto`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ auto: next })
+      })
+      setIsAutoOn(next === 'on')
+      if (next === 'off') {
+        setNextWakeAt(undefined)
       }
+    } catch (toggleError: unknown) {
+      setError(describeError(toggleError))
     } finally {
-      loopActiveRef.current = false
+      if (isMountedRef.current) {
+        setIsTogglingAuto(false)
+      }
     }
-  }
-
-  function handleAutoToggle(): void {
-    if (isAutoOn) {
-      autoRef.current = false
-      setIsAutoOn(false)
-      setIsKeepGoingPromptVisible(false)
-      return
-    }
-    autoRef.current = true
-    setIsAutoOn(true)
-    setIsKeepGoingPromptVisible(false)
-    void autoLoop(autoRuns)
-  }
-
-  function handleKeepGoing(): void {
-    setAutoRuns(0)
-    setIsKeepGoingPromptVisible(false)
-    autoRef.current = true
-    setIsAutoOn(true)
-    void autoLoop(0)
   }
 
   async function handleSaveIdea(): Promise<void> {
@@ -541,8 +548,10 @@ export function IdeaWorkspace({
 
         {!builderReady && (
           <p className="max-w-2xl rounded-md border border-gold/40 bg-gold/5 px-3 py-2 text-sm text-gold/90">
-            To build and improve, add <span className="font-mono">ANTHROPIC_API_KEY</span> to the
-            repo-root <span className="font-mono">.env</span>.
+            To build and improve, add <span className="font-mono">ONCELL_API_KEY</span> (or{' '}
+            <span className="font-mono">ANTHROPIC_API_KEY</span> with{' '}
+            <span className="font-mono">KAKA_BUILDER_MODE=local</span>) to the repo-root{' '}
+            <span className="font-mono">.env</span>.
           </p>
         )}
 
@@ -570,13 +579,17 @@ export function IdeaWorkspace({
                 <input
                   type="checkbox"
                   checked={isAutoOn}
-                  onChange={handleAutoToggle}
-                  disabled={!builderReady || !hasIdeaText}
+                  onChange={() => void handleAutoToggle()}
+                  disabled={!builderReady || !hasIdeaText || isTogglingAuto || isRunning}
                   className="accent-[#d4a54a]"
                 />
                 Auto-improve
                 <span className="font-mono text-[11px] text-faint">
-                  {isAutoOn ? `on — ${autoRuns}/${AUTO_MAX_RUNS_PER_SESSION} this session` : 'off'}
+                  {isAutoOn
+                    ? minutesUntil(nextWakeAt) !== undefined
+                      ? `improving on its own — next wake ~${minutesUntil(nextWakeAt)}m`
+                      : 'improving on its own'
+                    : 'off'}
                 </span>
               </label>
               <button
@@ -590,17 +603,6 @@ export function IdeaWorkspace({
             </>
           )}
         </div>
-
-        {isKeepGoingPromptVisible && (
-          <div className="flex max-w-2xl items-center justify-between gap-3 rounded-md border border-gold/40 bg-gold/5 px-3 py-2">
-            <p className="text-sm text-gold/90">
-              {AUTO_MAX_RUNS_PER_SESSION} improvements shipped this session. Keep going?
-            </p>
-            <button type="button" className="btn-primary" onClick={handleKeepGoing}>
-              Keep going
-            </button>
-          </div>
-        )}
 
         {error !== undefined && <p className="max-w-2xl text-sm text-bad">{error}</p>}
       </section>

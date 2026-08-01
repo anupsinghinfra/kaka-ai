@@ -6,6 +6,7 @@
  */
 
 import type { Logger } from 'pino'
+import { createAgentApi } from './agent-api'
 import { OnCellApiError, OnCellConfigError, OnCellExecError } from './errors'
 import {
   DEFAULT_RETRY_BACKOFF_MS,
@@ -255,6 +256,7 @@ export function createOnCellClient(options: OnCellClientOptions = {}): OnCellCli
     startService,
     getService,
     stopService,
-    ...createRequestApi(config)
+    ...createRequestApi(config),
+    ...createAgentApi(config)
   })
 }

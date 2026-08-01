@@ -121,6 +121,54 @@ export interface KvGetResult {
   readonly [key: string]: unknown
 }
 
+/** Budgets on an agent manifest identity (wire form: cents per day). */
+export interface AgentManifestBudgets {
+  readonly perDayCents?: number
+}
+
+/** Identity block of an agent manifest: base prompt, model, budgets. */
+export interface AgentManifestIdentity {
+  readonly instructions: string
+  readonly model?: string
+  readonly budgets?: AgentManifestBudgets
+}
+
+/** One skill on an agent manifest; `tools` are capability/tool names. */
+export interface AgentManifestSkill {
+  readonly name: string
+  readonly description: string
+  readonly instructions: string
+  readonly tools: readonly string[]
+}
+
+/**
+ * The agent-model wire contract carried on deploys: identity (who it is),
+ * capabilities (prebuilt tool names it can touch), skills (what it knows).
+ */
+export interface AgentManifest {
+  readonly identity: AgentManifestIdentity
+  readonly capabilities: readonly string[]
+  readonly skills: readonly AgentManifestSkill[]
+}
+
+/** Input for POST /api/v1/deploy. */
+export interface DeployAgentInput {
+  /** Agent name (becomes the invoke path segment). */
+  readonly name: string
+  /** JS source default-exporting `new Agent(name, {...})` from "oncell". */
+  readonly source: string
+  /** The identity/capabilities/skills manifest. */
+  readonly manifest: AgentManifest
+}
+
+/** A deploy record as returned by POST /api/v1/deploy. */
+export interface AgentDeployRecord {
+  readonly agentName: string
+  readonly version: number
+  readonly url?: string
+  readonly [key: string]: unknown
+}
+
 /** The typed OnCell client returned by createOnCellClient. */
 export interface OnCellClient {
   /** POST /api/v1/cells — idempotent-by-identity: re-create returns the existing cell. */
@@ -171,4 +219,12 @@ export interface OnCellClient {
   logs(cellId: string, lines?: number): Promise<unknown>
   /** request metrics. */
   metrics(cellId: string): Promise<unknown>
+  /** POST /api/v1/deploy — registers a new version of the named agent. */
+  deployAgent(input: DeployAgentInput): Promise<AgentDeployRecord>
+  /** POST /api/v1/agents/{name}/{task} — invokes an agent task. */
+  invokeAgentTask(
+    name: string,
+    task: string,
+    args: Readonly<Record<string, unknown>>
+  ): Promise<unknown>
 }

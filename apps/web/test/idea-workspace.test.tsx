@@ -80,3 +80,27 @@ describe('IdeaWorkspace live URL states', () => {
     expect(html).toContain('Built: Built the anvil shop.')
   })
 })
+
+describe('IdeaWorkspace durable auto-improve state', () => {
+  test('shows the server-side auto state with the next wake countdown', () => {
+    // Arrange — a wake ~30 minutes out.
+    const nextWakeAt = new Date(Date.now() + 30 * 60_000).toISOString()
+
+    // Act
+    const html = render({ iterations: [V1], autoImprove: true, nextWakeAt })
+
+    // Assert
+    expect(html).toContain('improving on its own')
+    expect(html).toMatch(/next wake ~(29|30)m/)
+    expect(html).toContain('auto-improving')
+  })
+
+  test('shows auto-improve off by default', () => {
+    // Act
+    const html = render({ iterations: [V1] })
+
+    // Assert
+    expect(html).toContain('Auto-improve')
+    expect(html).not.toContain('improving on its own')
+  })
+})

@@ -28,7 +28,9 @@ const mockClient = {
   kvSet: vi.fn(),
   journal: vi.fn(),
   logs: vi.fn(),
-  metrics: vi.fn()
+  metrics: vi.fn(),
+  deployAgent: vi.fn(),
+  invokeAgentTask: vi.fn()
 }
 
 vi.mock('@/lib/oncell', () => ({
@@ -92,6 +94,33 @@ describe('API routes', () => {
         expect.stringContaining('"acme"')
       )
       expect(mockClient.kvSet).toHaveBeenCalledWith('dev--v-acme', 'idea:name', 'acme')
+      // Agent mode (the default): the idea's Builder is deployed at birth.
+      expect(mockClient.deployAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: 'builder-acme',
+          source: expect.stringContaining('new Agent("builder-acme"'),
+          manifest: expect.objectContaining({ capabilities: ['memory', 'cells', 'schedule'] })
+        })
+      )
+    })
+
+    test('a failed Builder deploy does not block idea creation', async () => {
+      // Arrange
+      mockClient.createCell.mockResolvedValue({ cell_id: 'dev--v-acme', status: 'active' })
+      mockClient.writeFile.mockResolvedValue({})
+      mockClient.kvSet.mockResolvedValue({})
+      mockClient.deployAgent.mockRejectedValue(
+        new OnCellApiError({ status: 503, message: 'agents unavailable' })
+      )
+
+      // Act
+      const response = await createIdeaRoute(
+        jsonRequest('http://localhost/api/ideas', { name: 'acme', idea: 'sell anvils' })
+      )
+
+      // Assert — the cell + registry entry are real; deploy is re-ensured per run.
+      expect(response.status).toBe(201)
+      expect(getIdea('acme')).toBeDefined()
     })
 
     test('rejects an invalid name with the machine-readable error envelope', async () => {
