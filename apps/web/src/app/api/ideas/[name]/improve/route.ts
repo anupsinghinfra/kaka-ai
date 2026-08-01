@@ -9,13 +9,14 @@
  * in-process Anthropic flow, kept as an explicit escape hatch.
  */
 
-import { jsonError, ndjsonResponse } from '@/lib/api'
+import { jsonError, ndjsonResponse, readJsonBody } from '@/lib/api'
 import { builderMode } from '@/lib/builder-agent/mode'
 import { runBuilderAgentPass } from '@/lib/builder-agent/orchestrate'
 import { NothingToImproveError, runImprove, type ImproveEvent } from '@/lib/builder/improve'
 import { restartAppService } from '@/lib/builder/service'
 import { getOnCell, isBuilderConfigured } from '@/lib/oncell'
 import { currentVersion, getIdea, type Idea } from '@/lib/registry'
+import { IMPROVE_DIRECTION_MAX_LENGTH, improveBodySchema } from '@/lib/validation'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,11 +49,42 @@ function localImproveResponse(idea: Idea, ideaText: string): Response {
   })
 }
 
-export async function POST(_request: Request, context: RouteContext): Promise<Response> {
+/**
+ * Optional founder direction from the request body. Returns an error
+ * Response when a direction is present but over the limit; undefined
+ * direction when there is no usable body (the endpoint's historical shape).
+ */
+async function readDirection(
+  request: Request
+): Promise<{ direction?: string } | { errorResponse: Response }> {
+  const body = await readJsonBody(request)
+  if (body === undefined || body === null) {
+    return {}
+  }
+  const parsed = improveBodySchema.safeParse(body)
+  if (!parsed.success) {
+    return {
+      errorResponse: jsonError(
+        'DIRECTION_TOO_LONG',
+        `direction must be at most ${IMPROVE_DIRECTION_MAX_LENGTH} characters`,
+        400,
+        'Shorten the direction — one or two sentences is plenty.'
+      )
+    }
+  }
+  const direction = parsed.data.direction
+  return direction !== undefined && direction.length > 0 ? { direction } : {}
+}
+
+export async function POST(request: Request, context: RouteContext): Promise<Response> {
   const { name } = await context.params
   const idea = getIdea(name)
   if (idea === undefined) {
     return jsonError('IDEA_NOT_FOUND', `idea "${name}" not found`, 404)
+  }
+  const directed = await readDirection(request)
+  if ('errorResponse' in directed) {
+    return directed.errorResponse
   }
   const ideaText = idea.idea
   if (ideaText === undefined || ideaText.trim().length === 0) {
@@ -89,5 +121,9 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
   if (builderMode() === 'local') {
     return localImproveResponse(idea, ideaText)
   }
-  return ndjsonResponse((emit) => runBuilderAgentPass(idea, ideaText, 'improve', emit))
+  return ndjsonResponse((emit) =>
+    runBuilderAgentPass(idea, ideaText, 'improve', emit, {
+      ...(directed.direction !== undefined ? { direction: directed.direction } : {})
+    })
+  )
 }

@@ -14,12 +14,15 @@ import {
   autoRunPreamble,
   BRIEFING_AUTO_PREAMBLE,
   BRIEFING_CELL_ID,
+  BRIEFING_DIRECTION_BLOCK,
   BRIEFING_KIND,
   BRIEFING_RUN,
   BRIEFING_SNAPSHOT_KEY,
   BUILDER_BUDGET_PER_DAY_CENTS,
   builderAgentName,
   builderIdentityInstructions,
+  DIRECTION_PLACEHOLDER,
+  founderDirectionBlock,
   IMPROVE_SKILL_DESCRIPTION,
   IMPROVE_SKILL_NAME,
   improveSkillInstructions,
@@ -46,6 +49,7 @@ const IMPROVE_SKILL = {
 };
 const BRIEFING_TEMPLATE = ${JSON.stringify(runBriefingTemplate())};
 const AUTO_PREAMBLE = ${JSON.stringify(autoRunPreamble())};
+const DIRECTION_TEMPLATE = ${JSON.stringify(founderDirectionBlock())};
 
 const CELL_ID_MEMORY_KEY = "kaka:cell_id";
 const MAX_STEPS_PER_PASS = ${MAX_STEPS_PER_PASS};
@@ -95,12 +99,17 @@ async function runPass(kind, args) {
   const isSelfScheduled = typeof args.run !== "string" || args.run.length === 0;
   const run = isSelfScheduled ? "auto-" + Date.now().toString(36) : args.run;
   const snapshotKey = typeof args.snapshot_key === "string" ? args.snapshot_key : "";
+  // Founder direction rides only on manual improve invocations.
+  const direction = typeof args.direction === "string" ? args.direction.trim() : "";
   const briefing = fill(BRIEFING_TEMPLATE, {
     "${BRIEFING_KIND}": kind,
     "${BRIEFING_CELL_ID}": cellId,
     "${BRIEFING_RUN}": run,
     "${BRIEFING_SNAPSHOT_KEY}": snapshotKey,
     "${BRIEFING_AUTO_PREAMBLE}": isSelfScheduled ? AUTO_PREAMBLE : "",
+    "${BRIEFING_DIRECTION_BLOCK}": direction.length > 0
+      ? fill(DIRECTION_TEMPLATE, { "${DIRECTION_PLACEHOLDER}": direction })
+      : "",
   });
   const result = await agent.llm(briefing, {
     maxSteps: MAX_STEPS_PER_PASS,

@@ -16,7 +16,13 @@ const mockClient = {
   invokeAgentTask: vi.fn(),
   snapshotCell: vi.fn(),
   kvGet: vi.fn(),
-  kvSet: vi.fn()
+  kvSet: vi.fn(),
+  getService: vi.fn(),
+  startService: vi.fn(),
+  stopService: vi.fn(),
+  getCell: vi.fn(),
+  getLatestAgentRun: vi.fn(),
+  getAgentRunFeed: vi.fn()
 }
 
 vi.mock('@/lib/oncell', () => ({
@@ -35,6 +41,14 @@ function params(name: string): { params: Promise<{ name: string }> } {
 
 function request(name: string, endpoint: string): Request {
   return new Request(`http://localhost/api/ideas/${name}/${endpoint}`, { method: 'POST' })
+}
+
+function requestWithBody(name: string, endpoint: string, body: unknown): Request {
+  return new Request(`http://localhost/api/ideas/${name}/${endpoint}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body)
+  })
 }
 
 interface StreamEvent {
@@ -97,6 +111,17 @@ function arrangeAgentRun(script: AgentRunScript): { invokedArgs: () => Record<st
   let capturedArgs: Record<string, unknown> = {}
   mockClient.deployAgent.mockResolvedValue({ agentName: 'builder-acme', version: 1 })
   mockClient.snapshotCell.mockResolvedValue({ snapshot_key: 'snap-1' })
+  // Default: the agent's service-start step worked — nothing to repair.
+  mockClient.getService.mockResolvedValue({ running: true, port: 3000 })
+  mockClient.getCell.mockResolvedValue({
+    cell_id: 'dev--v-acme',
+    status: 'running',
+    preview_url: 'https://dev--v-acme.cells.oncell.ai'
+  })
+  // No runtime feed in these tests — the poller tolerates the 404s.
+  mockClient.getLatestAgentRun.mockRejectedValue(
+    new OnCellApiError({ status: 404, message: 'no runs yet' })
+  )
   mockClient.invokeAgentTask.mockImplementation(
     async (_name: string, _task: string, args: Record<string, unknown>) => {
       capturedArgs = args
@@ -275,7 +300,8 @@ describe('agent-mode build and improve routes', () => {
   })
 
   test('a service-error run still completes with the failure surfaced', async () => {
-    // Arrange
+    // Arrange — the agent reported service-error, and kaka's own repair
+    // attempt at finalization fails the same way (start keeps crashing).
     addIdea(draftIdea())
     arrangeAgentRun({
       progress: [
@@ -288,18 +314,73 @@ describe('agent-mode build and improve routes', () => {
         { v: 1, summary: 'Built it.', at: '2026-08-01T02:00:00.000Z', checkPassed: true }
       ]
     })
+    mockClient.getService.mockRejectedValue(
+      new OnCellApiError({ status: 503, code: 'NO_APP_RUNNING', message: 'no app running' })
+    )
+    mockClient.stopService.mockRejectedValue(
+      new OnCellApiError({ status: 503, code: 'NO_APP_RUNNING', message: 'no app running' })
+    )
+    mockClient.startService.mockRejectedValue(
+      new OnCellApiError({ status: 500, message: 'the app crashed on boot' })
+    )
 
     // Act
     const response = await buildRoute(request('acme', 'build'), params('acme'))
     const events = await readEvents(response)
 
-    // Assert — done (not error), with serviceError and no live URL.
+    // Assert — done (not error), with serviceError and no live URL. The
+    // platform DID try to repair the service before giving up.
     const done = events.at(-1)
     expect(done?.stage).toBe('done')
     expect(done?.result?.serviceError).toBe('the app crashed on boot')
     expect(done?.result?.liveUrl).toBeUndefined()
+    expect(mockClient.startService).toHaveBeenCalledWith('dev--v-acme', {
+      cmd: 'node src/server.js'
+    })
     expect(getIdea('acme')?.serviceError).toBe('the app crashed on boot')
     expect(getIdea('acme')?.liveUrl).toBeUndefined()
+  })
+
+  test('finalize repairs a skipped service start: app started, live emitted, liveUrl recorded', async () => {
+    // Arrange — the model compressed under step pressure and never started
+    // the service (no live, no service-error). kaka's guarantee kicks in.
+    addIdea(draftIdea())
+    arrangeAgentRun({
+      progress: [
+        { stage: 'generating' },
+        { stage: 'checked', detail: '{"exitCode":0,"output":"CHECK_OK"}' },
+        { stage: 'done', detail: 'Built the anvil shop.' }
+      ],
+      iterations: [
+        { v: 1, summary: 'Built the anvil shop.', at: '2026-08-01T02:00:00.000Z', checkPassed: true }
+      ]
+    })
+    mockClient.getService.mockRejectedValue(
+      new OnCellApiError({ status: 503, code: 'NO_APP_RUNNING', message: 'no app running' })
+    )
+    mockClient.stopService.mockRejectedValue(
+      new OnCellApiError({ status: 503, code: 'NO_APP_RUNNING', message: 'no app running' })
+    )
+    mockClient.startService.mockResolvedValue({ running: true, port: 3000 })
+
+    // Act
+    const response = await buildRoute(request('acme', 'build'), params('acme'))
+    const events = await readEvents(response)
+
+    // Assert — the platform started the app and the payoff arrived anyway.
+    expect(mockClient.startService).toHaveBeenCalledWith('dev--v-acme', {
+      cmd: 'node src/server.js'
+    })
+    const stages = events.map((event) => event.stage)
+    expect(stages.indexOf('live')).toBe(stages.indexOf('done') - 1)
+    expect(events.find((event) => event.stage === 'live')?.url).toBe(
+      'https://dev--v-acme.cells.oncell.ai'
+    )
+    const done = events.at(-1)
+    expect(done?.result?.liveUrl).toBe('https://dev--v-acme.cells.oncell.ai')
+    expect(done?.result?.serviceError).toBeUndefined()
+    expect(getIdea('acme')?.liveUrl).toBe('https://dev--v-acme.cells.oncell.ai')
+    expect(getIdea('acme')?.serviceError).toBeUndefined()
   })
 
   test('an agent-reported error ends the stream with AGENT_RUN_FAILED', async () => {
@@ -376,6 +457,64 @@ describe('agent-mode build and improve routes', () => {
     // Assert
     expect(events.at(-1)?.stage).toBe('error')
     expect(events.at(-1)?.error?.code).toBe('AGENT_RUN_TIMEOUT')
+  })
+
+  test('improve threads the founder direction into the task args', async () => {
+    // Arrange
+    addIdea(builtIdea())
+    const { invokedArgs } = arrangeAgentRun({
+      progress: [{ stage: 'reading' }, { stage: 'done', detail: 'Added dark mode.' }],
+      iterations: [
+        { v: 1, summary: 'Built the anvil shop.', at: '2026-08-01T01:00:00.000Z', checkPassed: true },
+        { v: 2, summary: 'Added dark mode.', at: '2026-08-01T02:00:00.000Z', checkPassed: true }
+      ]
+    })
+
+    // Act
+    const response = await improveRoute(
+      requestWithBody('acme', 'improve', { direction: '  Add dark mode  ' }),
+      params('acme')
+    )
+    await readEvents(response)
+
+    // Assert — trimmed direction rides in the task args.
+    expect(invokedArgs().direction).toBe('Add dark mode')
+  })
+
+  test('improve without a body sends no direction arg', async () => {
+    // Arrange
+    addIdea(builtIdea())
+    const { invokedArgs } = arrangeAgentRun({
+      progress: [{ stage: 'done', detail: 'Improved.' }],
+      iterations: [
+        { v: 1, summary: 'Built the anvil shop.', at: '2026-08-01T01:00:00.000Z', checkPassed: true }
+      ]
+    })
+
+    // Act
+    const response = await improveRoute(request('acme', 'improve'), params('acme'))
+    await readEvents(response)
+
+    // Assert
+    expect('direction' in invokedArgs()).toBe(false)
+  })
+
+  test('improve rejects an over-long direction with 400 before any run starts', async () => {
+    // Arrange
+    addIdea(builtIdea())
+
+    // Act
+    const response = await improveRoute(
+      requestWithBody('acme', 'improve', { direction: 'x'.repeat(501) }),
+      params('acme')
+    )
+    const body = (await response.json()) as { error: { code: string } }
+
+    // Assert
+    expect(response.status).toBe(400)
+    expect(body.error.code).toBe('DIRECTION_TOO_LONG')
+    expect(mockClient.deployAgent).not.toHaveBeenCalled()
+    expect(mockClient.invokeAgentTask).not.toHaveBeenCalled()
   })
 
   test('improve still requires a built v1 in agent mode', async () => {

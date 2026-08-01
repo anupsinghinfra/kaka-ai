@@ -13,6 +13,7 @@
 
 import { useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
+import { accumulateCost, activityLineText, formatCostTicker } from './activity-feed'
 import { apiFetch, describeError } from './client-api'
 
 export interface IterationView {
@@ -47,6 +48,12 @@ interface StreamEvent {
   path?: string
   url?: string
   wakeAt?: string
+  /** Runtime activity fields ({stage:"activity"} events from the run feed). */
+  op?: string
+  summary?: string
+  ts?: string
+  cost?: number
+  durationMs?: number
   result?: {
     iteration?: IterationView
     summary?: string
@@ -89,6 +96,20 @@ const IMPROVE_STAGE_LABELS: Record<string, string> = {
 interface ActivityLine {
   at: string
   text: string
+  /**
+   * milestone: the agent's kv-protocol stages (generating/writing/live/…),
+   * rendered bolder as section markers. activity: the runtime feed's
+   * per-op lines — the feed's bread and butter.
+   */
+  kind: 'milestone' | 'activity'
+}
+
+/** Line styling: activity lines quiet, milestones bold section markers. */
+function activityLineTone(line: ActivityLine): string {
+  if (line.kind === 'activity') {
+    return 'text-muted'
+  }
+  return line.text.endsWith('✓') ? 'font-semibold text-good' : 'font-semibold text-fg'
 }
 
 /** One feed line per stream event — the "watch it happen" narration. */
@@ -115,7 +136,9 @@ function feedText(kind: RunKind, event: StreamEvent, targetV: number): string | 
   if (event.stage === 'error') {
     return `Failed: ${event.error?.message ?? 'the run failed'}`
   }
-  return (kind === 'building' ? BUILD_STAGE_LABELS : IMPROVE_STAGE_LABELS)[event.stage] ?? `${event.stage}…`
+  // Unknown stages (the model sometimes improvises, e.g. "shipped") render
+  // verbatim as milestone lines instead of being dropped or decorated.
+  return (kind === 'building' ? BUILD_STAGE_LABELS : IMPROVE_STAGE_LABELS)[event.stage] ?? event.stage
 }
 
 function maxVersion(iterations: readonly IterationView[]): number {
@@ -188,6 +211,8 @@ export function IdeaWorkspace({
   const [serviceError, setServiceError] = useState<string | undefined>(initialServiceError)
   const [isStartingApp, setIsStartingApp] = useState(false)
   const [activity, setActivity] = useState<readonly ActivityLine[]>([])
+  const [runCost, setRunCost] = useState(0)
+  const [directionDraft, setDirectionDraft] = useState('')
   const feedRef = useRef<HTMLDivElement | null>(null)
 
   // Keep the live feed pinned to its newest line.
@@ -239,14 +264,23 @@ export function IdeaWorkspace({
   /** Runs one streamed pass (build or improve). Resolves true on success. */
   async function runStreamedPass(kind: RunKind): Promise<boolean> {
     const targetV = kind === 'building' ? 1 : maxVersionRefSafe() + 1
+    // Founder direction rides only on manual improve runs.
+    const direction = kind === 'improving' ? directionDraft.trim() : ''
     setError(undefined)
     setLastCheck(undefined)
     setActivity([])
+    setRunCost(0)
     setRun({ kind, stage: kind === 'building' ? 'generating' : 'reading', targetV })
     try {
       const endpoint = kind === 'building' ? 'build' : 'improve'
       const response = await fetch(`/api/ideas/${encodeURIComponent(name)}/${endpoint}`, {
-        method: 'POST'
+        method: 'POST',
+        ...(direction.length > 0
+          ? {
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ direction })
+            }
+          : {})
       })
       if (!response.ok) {
         const body = (await response.json().catch(() => ({}))) as StreamEvent
@@ -254,12 +288,22 @@ export function IdeaWorkspace({
         setError(body.error?.remediation !== undefined ? `${base} — ${body.error.remediation}` : base)
         return false
       }
+      setDirectionDraft('')
       let succeeded = false
       await readNdjsonStream(response, (event) => {
+        const at = new Date().toLocaleTimeString('en-US', { hour12: false })
+        if (event.stage === 'activity') {
+          // Runtime feed line — the glass box's bread and butter.
+          setRunCost((previous) => accumulateCost(previous, event.cost))
+          setActivity((previous) => [
+            ...previous,
+            { at, text: activityLineText(event), kind: 'activity' }
+          ])
+          return
+        }
         const line = feedText(kind, event, targetV)
         if (line !== undefined) {
-          const at = new Date().toLocaleTimeString('en-US', { hour12: false })
-          setActivity((previous) => [...previous, { at, text: line }])
+          setActivity((previous) => [...previous, { at, text: line, kind: 'milestone' }])
         }
         if (event.stage === 'done') {
           succeeded = true
@@ -563,6 +607,16 @@ export function IdeaWorkspace({
             </button>
           ) : (
             <>
+              <input
+                type="text"
+                className="field min-w-0 flex-1 basis-64 py-1.5 text-sm"
+                placeholder="Tell it what to ship next — optional; leave empty and the agent picks"
+                value={directionDraft}
+                onChange={(event) => setDirectionDraft(event.target.value)}
+                maxLength={500}
+                disabled={!canAct || isAutoOn}
+                aria-label="Direction for the next improvement"
+              />
               <button
                 type="button"
                 className="btn-primary"
@@ -615,6 +669,11 @@ export function IdeaWorkspace({
             <h2 className="section-title mb-4 flex items-center gap-2">
               <span className="h-2 w-2 animate-pulse rounded-full bg-gold" />
               {run.kind === 'building' ? 'Building v1 — live' : `Improving to v${run.targetV} — live`}
+              {formatCostTicker(runCost) !== undefined && (
+                <span className="ml-auto font-mono text-[11px] font-normal normal-case text-faint">
+                  {formatCostTicker(runCost)}
+                </span>
+              )}
             </h2>
             <div
               ref={feedRef}
@@ -624,9 +683,7 @@ export function IdeaWorkspace({
                 {activity.map((line, index) => (
                   <li key={index} className="flex gap-3">
                     <span className="shrink-0 text-faint">{line.at}</span>
-                    <span className={line.text.endsWith('✓') ? 'text-good' : 'text-fg'}>
-                      {line.text}
-                    </span>
+                    <span className={activityLineTone(line)}>{line.text}</span>
                   </li>
                 ))}
               </ol>

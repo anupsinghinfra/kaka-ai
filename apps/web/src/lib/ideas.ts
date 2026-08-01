@@ -4,6 +4,7 @@
  */
 
 import type { CellRecord } from '@platform/oncell'
+import { IDEA_FILE_PATH } from './builder-agent/agent-def'
 import { deployBuilderAgent } from './builder-agent/deploy'
 import { builderMode } from './builder-agent/mode'
 import { getOnCell } from './oncell'
@@ -17,8 +18,8 @@ import {
 } from './registry'
 import { ideaCustomerId } from './validation'
 
-/** In-cell marker file identifying the idea. */
-export const IDEA_FILE_PATH = '.kaka/idea.json'
+/** In-cell marker file identifying the idea (defined with the agent protocol). */
+export { IDEA_FILE_PATH } from './builder-agent/agent-def'
 /** In-cell KV key holding the idea name. */
 export const IDEA_NAME_KEY = 'idea:name'
 
@@ -62,6 +63,15 @@ async function seedCellIdentity(
   const client = getOnCell()
   await client.writeFile(cellId, IDEA_FILE_PATH, ideaFileContent(name, idea, createdAt))
   await client.kvSet(cellId, IDEA_NAME_KEY, name)
+}
+
+/**
+ * Rewrites the in-cell idea file after an edit, so the Builder's evidence
+ * step (read .kaka/idea.json before picking an improvement) always sees the
+ * founder's CURRENT idea text — never the text from creation time.
+ */
+export async function refreshCellIdea(idea: Idea): Promise<void> {
+  await getOnCell().writeFile(idea.cellId, IDEA_FILE_PATH, ideaFileContent(idea.name, idea.idea, idea.createdAt))
 }
 
 /** Creates the OnCell cell, seeds identity, and registers the idea. */

@@ -1,8 +1,10 @@
 import { describe, expect, test } from 'vitest'
 import {
+  DONE_STAGES,
   parseCellIterations,
   parseCheckedDetail,
   parseProgressEntries,
+  TERMINAL_STAGES,
   toStreamEvent,
   type ProgressEntry
 } from '@/lib/builder-agent/progress'
@@ -111,5 +113,19 @@ describe('toStreamEvent', () => {
     expect(toStreamEvent(entry('generating'))).toEqual({ stage: 'generating' })
     expect(toStreamEvent(entry('checked', '{"exitCode":0,"output":"ok"}'))).toBeUndefined()
     expect(toStreamEvent(entry('service-error', 'boom'))).toBeUndefined()
+  })
+
+  test('unknown improvised stages pass through verbatim, never dropped', () => {
+    expect(toStreamEvent(entry('polishing'))).toEqual({ stage: 'polishing' })
+  })
+})
+
+describe('terminal stages', () => {
+  test('treats the improvised "shipped" as done-equivalent', () => {
+    expect(DONE_STAGES.has('done')).toBe(true)
+    expect(DONE_STAGES.has('shipped')).toBe(true)
+    expect(DONE_STAGES.has('error')).toBe(false)
+    expect(TERMINAL_STAGES.has('shipped')).toBe(true)
+    expect(TERMINAL_STAGES.has('error')).toBe(true)
   })
 })

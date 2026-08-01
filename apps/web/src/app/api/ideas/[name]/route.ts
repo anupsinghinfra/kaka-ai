@@ -5,7 +5,7 @@
  */
 
 import { jsonError, jsonOk, readJsonBody, toErrorResponse } from '@/lib/api'
-import { deleteIdea, fetchCellStatus, IdeaNotFoundError } from '@/lib/ideas'
+import { deleteIdea, fetchCellStatus, IdeaNotFoundError, refreshCellIdea } from '@/lib/ideas'
 import { getOnCell, isBuilderConfigured } from '@/lib/oncell'
 import { getIdea, updateIdea } from '@/lib/registry'
 import { updateIdeaSchema } from '@/lib/validation'
@@ -47,6 +47,14 @@ export async function PATCH(request: Request, context: RouteContext): Promise<Re
       return toErrorResponse(parsed.error)
     }
     const idea = updateIdea(name, { idea: parsed.data.idea })
+    // Keep the in-cell idea file in step — it is the Builder's evidence
+    // source for "what the founder wants now". Best-effort: the registry is
+    // already updated, and every kaka-fired run redeploys with fresh text.
+    try {
+      await refreshCellIdea(idea)
+    } catch {
+      // Tolerated — self-scheduled runs will still see it on the next edit.
+    }
     return jsonOk({ idea })
   } catch (error: unknown) {
     return toErrorResponse(error)

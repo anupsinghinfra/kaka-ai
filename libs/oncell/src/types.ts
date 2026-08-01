@@ -169,6 +169,41 @@ export interface AgentDeployRecord {
   readonly [key: string]: unknown
 }
 
+/** One agent run, from GET /api/v1/agents/{name}/runs/latest. */
+export interface AgentRunRecord {
+  readonly runId: string
+  readonly startedAt: string
+  readonly active: boolean
+  readonly [key: string]: unknown
+}
+
+/**
+ * One runtime-observed operation in an agent run's live feed. The summary
+ * is a short human-safe line per op (e.g. tool name + file path — never
+ * file contents). `cost` is dollars for that op when the runtime knows it.
+ */
+export interface AgentRunFeedEntry {
+  readonly idx: number
+  readonly ts: string
+  readonly op: string
+  readonly summary: string
+  readonly cost?: number
+  readonly durationMs?: number
+  readonly [key: string]: unknown
+}
+
+/**
+ * One page of a run's feed, from
+ * GET /api/v1/agents/{name}/runs/{runId}/feed?after=N. `next` is the cursor
+ * for the following page; `done` is true once the run's loop terminated
+ * (the terminal entry carries the status).
+ */
+export interface AgentRunFeedPage {
+  readonly entries: readonly AgentRunFeedEntry[]
+  readonly next: number
+  readonly done: boolean
+}
+
 /** The typed OnCell client returned by createOnCellClient. */
 export interface OnCellClient {
   /** POST /api/v1/cells — idempotent-by-identity: re-create returns the existing cell. */
@@ -227,4 +262,8 @@ export interface OnCellClient {
     task: string,
     args: Readonly<Record<string, unknown>>
   ): Promise<unknown>
+  /** GET /api/v1/agents/{name}/runs/latest — the agent's most recent run. */
+  getLatestAgentRun(agentName: string): Promise<AgentRunRecord>
+  /** GET /api/v1/agents/{name}/runs/{runId}/feed?after=N — one feed page. */
+  getAgentRunFeed(agentName: string, runId: string, after?: number): Promise<AgentRunFeedPage>
 }

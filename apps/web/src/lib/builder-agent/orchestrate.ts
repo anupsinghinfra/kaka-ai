@@ -3,9 +3,19 @@
  * things per run: (re)deploy the idea's Builder agent, snapshot the cell
  * (the rollback point — the agent has no snapshot tool, so the platform
  * takes it and passes the key in the task args), fire the task, then poll
- * the cell's `kaka:progress` kv and relay the agent's entries as the same
- * NDJSON stage events the browser always understood. The run token in the
- * task args disambiguates concurrent/old runs.
+ * two independent progress sources and relay both as NDJSON events:
+ *
+ * - the cell's `kaka:progress` kv — the agent's own milestone narrative
+ *   (generating/writing/live/…), which the model writes voluntarily; and
+ * - the run's RUNTIME feed (runs/latest + runs/{id}/feed) — what OnCell
+ *   observes of the loop (tool calls, steps, cost) with no agent
+ *   cooperation, relayed as {stage:"activity"} events.
+ *
+ * The feed's `done` complements kv done: when the runtime says the loop
+ * terminated but the agent never recorded done/shipped, kaka waits a short
+ * tail then finalizes from cell state — the run ended, reflect reality.
+ * Finalization also enforces kaka's guarantee that the app is RUNNING
+ * (the model sometimes skips the service-start step under step pressure).
  *
  * Failures surface as clear error events — there is NO silent fallback to
  * the local Anthropic builder (that path is the KAKA_BUILDER_MODE=local
@@ -15,10 +25,13 @@
 import { randomUUID } from 'node:crypto'
 import type { OnCellClient } from '@platform/oncell'
 import { getOnCell } from '../oncell'
+import { restartAppService, resolvePreviewUrl } from '../builder/service'
 import { updateIdea, type Idea, type LastCheck } from '../registry'
 import { builderAgentName, PROGRESS_KEY } from './agent-def'
 import { deployBuilderAgent } from './deploy'
+import { createRunFeedPoller, toActivityEvent } from './feed'
 import {
+  DONE_STAGES,
   parseCheckedDetail,
   parseProgressEntries,
   toStreamEvent,
@@ -28,9 +41,17 @@ import { syncIterationsFromCell } from './sync'
 
 export const DEFAULT_POLL_INTERVAL_MS = 2000
 export const DEFAULT_RUN_TIMEOUT_MS = 15 * 60_000
+/** Grace after the runtime feed reports the loop ended, for kv to catch up. */
+export const DEFAULT_FEED_DONE_TAIL_MS = 10_000
 const MAX_LAST_CHECK_OUTPUT_CHARS = 4000
 
 export type AgentPassKind = 'build' | 'improve'
+
+/** Per-run options threaded from the route into the task args. */
+export interface AgentPassOptions {
+  /** Founder direction for this revision (manual improve only). */
+  readonly direction?: string
+}
 
 type Emit = (event: object) => void
 
@@ -104,13 +125,60 @@ function observe(observations: RunObservations, entry: ProgressEntry): RunObserv
   return observations
 }
 
-/** Records the outcome on the registry and emits the terminal done event. */
-async function finalizeDone(
+/** True when the cell's app service is running (any failure means no). */
+async function isServiceRunning(oncell: OnCellClient, cellId: string): Promise<boolean> {
+  try {
+    const service = await oncell.getService(cellId)
+    return service.running === true
+  } catch {
+    // getService 503s (NO_APP_RUNNING) until something is started.
+    return false
+  }
+}
+
+/**
+ * kaka's guarantee: after a run finalizes, the app is RUNNING — enforced by
+ * the platform, not by agent compliance (the briefing's service-start step
+ * gets skipped when the model compresses under step pressure). Repairs the
+ * service when needed, emits the {stage:"live"} payoff, and returns the
+ * corrected observations. A failed start stays non-fatal (serviceError).
+ */
+async function ensureAppRunning(
   oncell: OnCellClient,
   idea: Idea,
   observations: RunObservations,
   emit: Emit
+): Promise<RunObservations> {
+  if (await isServiceRunning(oncell, idea.cellId)) {
+    if (observations.liveUrl !== undefined) {
+      return observations
+    }
+    // Running but never reported — reflect reality with the real URL.
+    const liveUrl = await resolvePreviewUrl(oncell, idea.cellId)
+    emit({ stage: 'live', url: liveUrl })
+    return { ...observations, liveUrl, serviceError: undefined }
+  }
+  const outcome = await restartAppService(oncell, idea)
+  if (outcome.ok) {
+    emit({ stage: 'live', url: outcome.liveUrl })
+    return { ...observations, liveUrl: outcome.liveUrl, serviceError: undefined }
+  }
+  return { ...observations, liveUrl: undefined, serviceError: outcome.serviceError }
+}
+
+/**
+ * Records the outcome on the registry and emits the terminal done event.
+ * Every finalization path (kv done, improvised "shipped", feed-done
+ * reconciliation) funnels through here, so the app-running guarantee holds
+ * everywhere.
+ */
+async function finalizeDone(
+  oncell: OnCellClient,
+  idea: Idea,
+  observed: RunObservations,
+  emit: Emit
 ): Promise<void> {
+  const observations = await ensureAppRunning(oncell, idea, observed, emit)
   const synced = await syncIterationsFromCell(oncell, idea)
   const iteration =
     synced.iterations.length > 0
@@ -148,19 +216,23 @@ async function finalizeDone(
 
 /**
  * Runs one agent-mode pass: deploy → snapshot → invoke (fire) → poll the
- * cell's progress kv every ~2s, streaming stage events until the agent
- * records done/error for this run (or the deadline passes).
+ * cell's progress kv AND the run's runtime feed every ~2s, streaming stage
+ * and activity events until the agent records done/error for this run, the
+ * runtime feed reports the loop ended (short tail, then finalize from cell
+ * state), or the deadline passes.
  */
 export async function runBuilderAgentPass(
   idea: Idea,
   ideaText: string,
   kind: AgentPassKind,
-  emit: Emit
+  emit: Emit,
+  options: AgentPassOptions = {}
 ): Promise<void> {
   const oncell = getOnCell()
   const agentName = builderAgentName(idea.name)
   const pollIntervalMs = envInt('KAKA_AGENT_POLL_MS', DEFAULT_POLL_INTERVAL_MS)
   const timeoutMs = envInt('KAKA_AGENT_RUN_TIMEOUT_MS', DEFAULT_RUN_TIMEOUT_MS)
+  const feedTailMs = envInt('KAKA_AGENT_FEED_TAIL_MS', DEFAULT_FEED_DONE_TAIL_MS)
 
   emit({ stage: 'preparing' })
   try {
@@ -174,6 +246,7 @@ export async function runBuilderAgentPass(
   const snapshot = await oncell.snapshotCell(idea.cellId)
 
   const run = `run-${randomUUID()}`
+  const direction = options.direction?.trim()
   let invokeFailure: unknown
   // Fire the task; the agent reports through the cell, not the invocation.
   // The invocation response is expendable: agent runs outlive the edge's
@@ -184,7 +257,8 @@ export async function runBuilderAgentPass(
     .invokeAgentTask(agentName, kind, {
       cell_id: idea.cellId,
       run,
-      snapshot_key: snapshot.snapshot_key
+      snapshot_key: snapshot.snapshot_key,
+      ...(direction !== undefined && direction.length > 0 ? { direction } : {})
     })
     .catch((error: unknown) => {
       invokeFailure = error
@@ -193,11 +267,18 @@ export async function runBuilderAgentPass(
   const invokeGraceMs = Number(process.env.KAKA_AGENT_INVOKE_GRACE_MS || 120_000)
   const started = Date.now()
   const deadline = started + timeoutMs
+  const feed = createRunFeedPoller(oncell, agentName, started)
+  let feedDoneAt: number | undefined
   let observations: RunObservations = {}
   let relayed = 0
 
   while (Date.now() < deadline) {
-    if (invokeFailure !== undefined && relayed === 0 && Date.now() - started > invokeGraceMs) {
+    if (
+      invokeFailure !== undefined &&
+      relayed === 0 &&
+      feed.relayedCount() === 0 &&
+      Date.now() - started > invokeGraceMs
+    ) {
       emitAgentUnavailable(emit, 'invoked', invokeFailure)
       return
     }
@@ -205,7 +286,12 @@ export async function runBuilderAgentPass(
     if (entries !== undefined) {
       for (const entry of entries.slice(relayed)) {
         observations = observe(observations, entry)
-        if (entry.stage === 'done') {
+        if (DONE_STAGES.has(entry.stage)) {
+          if (entry.stage !== 'done') {
+            // The model improvised its terminal stage — relay it verbatim
+            // as a milestone, then finalize exactly like done.
+            emit({ stage: entry.stage })
+          }
           await finalizeDone(oncell, idea, observations, emit)
           return
         }
@@ -225,6 +311,19 @@ export async function runBuilderAgentPass(
         }
       }
       relayed = entries.length
+    }
+    for (const feedEntry of await feed.poll()) {
+      emit(toActivityEvent(feedEntry))
+    }
+    if (feed.isDone() && feedDoneAt === undefined) {
+      feedDoneAt = Date.now()
+    }
+    if (feedDoneAt !== undefined && Date.now() - feedDoneAt >= feedTailMs) {
+      // The runtime says the loop terminated but the agent never recorded
+      // done/shipped. The kv had its tail to catch up — finalize from cell
+      // state instead of timing out: the run ended, reflect reality.
+      await finalizeDone(oncell, idea, observations, emit)
+      return
     }
     await sleep(pollIntervalMs)
   }

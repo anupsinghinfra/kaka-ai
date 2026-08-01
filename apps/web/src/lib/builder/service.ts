@@ -28,7 +28,7 @@ function isNothingRunning(error: unknown): boolean {
 }
 
 /** The cell's preview URL: the API's value when present, else the documented shape. */
-async function resolvePreviewUrl(oncell: OnCellClient, cellId: string): Promise<string> {
+export async function resolvePreviewUrl(oncell: OnCellClient, cellId: string): Promise<string> {
   try {
     const cell = await oncell.getCell(cellId)
     const fromApi = cell?.preview_url

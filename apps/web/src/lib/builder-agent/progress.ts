@@ -18,8 +18,15 @@ export const progressEntrySchema = z.object({
 
 export type ProgressEntry = z.infer<typeof progressEntrySchema>
 
+/**
+ * Stages equivalent to a successful "done". The model sometimes improvises
+ * terminal wording ("shipped") instead of the protocol's "done" — kaka
+ * treats it as done rather than letting the run time out.
+ */
+export const DONE_STAGES: ReadonlySet<string> = new Set(['done', 'shipped'])
+
 /** Stages that end a run. */
-export const TERMINAL_STAGES: ReadonlySet<string> = new Set(['done', 'error'])
+export const TERMINAL_STAGES: ReadonlySet<string> = new Set([...DONE_STAGES, 'error'])
 
 /** Parsed `{"exitCode","output"}` payload of a "checked" entry's detail. */
 export interface CheckedDetail {

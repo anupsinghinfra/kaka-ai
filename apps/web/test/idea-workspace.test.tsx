@@ -81,6 +81,25 @@ describe('IdeaWorkspace live URL states', () => {
   })
 })
 
+describe('IdeaWorkspace founder direction', () => {
+  test('offers the optional direction input next to the Improve CTA', () => {
+    // Act
+    const html = render({ iterations: [V1] })
+
+    // Assert
+    expect(html).toContain('Tell it what to ship next')
+    expect(html).toContain(`Improve to v2`)
+  })
+
+  test('hides the direction input before v1 exists', () => {
+    // Act
+    const html = render()
+
+    // Assert
+    expect(html).not.toContain('Tell it what to ship next')
+  })
+})
+
 describe('IdeaWorkspace durable auto-improve state', () => {
   test('shows the server-side auto state with the next wake countdown', () => {
     // Arrange — a wake ~30 minutes out.

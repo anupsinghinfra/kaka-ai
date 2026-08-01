@@ -40,6 +40,16 @@ export const NEXT_WAKE_KEY = 'kaka:next-wake'
 /** Maximum progress entries kept in the cell (the agent trims older ones). */
 export const MAX_PROGRESS_ENTRIES = 200
 
+/** In-cell marker file holding the canonical idea text (seeded by kaka). */
+export const IDEA_FILE_PATH = '.kaka/idea.json'
+
+/** The app's own runtime self-log — the evidence improve runs read. */
+export const APP_LOG_PATH = 'app.log'
+/** Self-log size cap before the app rewrites it (newest half kept). */
+export const APP_LOG_MAX_BYTES = 64_000
+/** Lines of the self-log an improve run tails for runtime evidence. */
+export const APP_LOG_TAIL_LINES = 200
+
 /** The deployed agent name for an idea. */
 export function builderAgentName(ideaName: string): string {
   return `builder-${ideaName}`
@@ -62,6 +72,7 @@ export function builderIdentityInstructions(ideaName: string, ideaText: string):
     `- The entry point MUST be "${REQUIRED_SERVER_PATH}": an HTTP server (node:http) listening on process.env.PORT || 3000 that serves the product's user interface at "/" plus any API routes it needs. Plain "node ${REQUIRED_SERVER_PATH}" must start it with no flags.`,
     `- You MUST keep "${REQUIRED_CHECK_PATH}" current: a self-test that starts the server from ${REQUIRED_SERVER_PATH} on an ephemeral port (listen on port 0), makes real HTTP requests to "127.0.0.1" (NEVER the hostname "localhost" — the sandbox has no name resolution), asserts the responses, prints "${CHECK_OK_MARKER}" on success, and exits 0 (non-zero on failure).`,
     '- CommonJS (require) or ESM with .mjs — pick one and stay consistent. A package.json must not declare dependencies.',
+    `- The server MUST keep a small self-log at "${APP_LOG_PATH}": append one short line (ISO timestamp + what happened) with node:fs appendFileSync for every startup, handled error, and non-2xx response; when the file exceeds ${APP_LOG_MAX_BYTES} bytes, rewrite it keeping only the newest half. This log is the ONLY runtime evidence your future improve runs can read — without it you are improving blind.`,
     '',
     'Record-keeping (kv on the idea cell via cells_kv_get / cells_kv_set; every value is a JSON string):',
     `- "${PROGRESS_KEY}": JSON array of progress entries {"ts","run","stage","detail"?}. Always read-modify-write: get, parse (missing/invalid means []), push, keep only the newest ${MAX_PROGRESS_ENTRIES}, set.`,
@@ -75,17 +86,22 @@ export function builderIdentityInstructions(ideaName: string, ideaText: string):
 export const IMPROVE_SKILL_NAME = 'improve'
 
 export const IMPROVE_SKILL_DESCRIPTION =
-  "Ship the single most user-felt improvement to the idea's app: read the current app from the cell, improve, verify, restart, record."
+  "Ship the single most user-felt improvement to the idea's app: gather evidence (idea file, app, changelog, runtime log), pick, improve, verify, restart, record."
 
 export function improveSkillInstructions(): string {
   return [
-    'One improvement per run — how to pick and ship it:',
+    'One improvement per run — evidence first, then pick, then ship:',
     '',
-    `1. Read the current app from the cell: cells_list_files, then cells_read_file each app file (skip .kaka, node_modules, .git). Read the changelog from kv "${ITERATIONS_KEY}".`,
+    '1. Gather evidence — NEVER pick an improvement blind:',
+    `   a. cells_read_file "${IDEA_FILE_PATH}" — the founder may have edited the idea since you were deployed; the idea text in this file is authoritative for this run and overrides anything you remember. (Reading .kaka is expected; writing to it is forbidden.)`,
+    `   b. Read the current app: cells_list_files, then cells_read_file each app file (skip .kaka, node_modules, .git, ${APP_LOG_PATH}). Read the changelog from kv "${ITERATIONS_KEY}".`,
+    `   c. Runtime signals: cells_exec {"cmd":"[ -f ${APP_LOG_PATH} ] && tail -n ${APP_LOG_TAIL_LINES} ${APP_LOG_PATH} || echo NO_APP_LOG"} — the app's self-log. Scan it for errors, crashes, restarts, and usage patterns (which routes real users actually hit).`,
     '2. If the latest self-test FAILED, the single most valuable improvement is always the same: make the app pass its self-test again.',
-    '3. Otherwise pick the SINGLE most valuable improvement a real user of this product would immediately feel. Not a refactor, not a cleanup, not a rewrite — one concrete improvement to what the product does or how it feels to use. Never repeat an improvement already in the changelog.',
-    `4. Write the COMPLETE updated file set with cells_write_file — every file the app needs, full contents, including files you did not change. Update ${REQUIRED_CHECK_PATH} so it exercises the new improvement.`,
-    '5. Verify, restart the service, and record the iteration exactly as the run briefing prescribes.'
+    `3. Observed runtime errors OUTRANK new features: if the self-log shows the app failing for users (errors, crashes, restart storms), fixing that failure IS the single most valuable improvement this run — ship the fix, not a feature.`,
+    '4. Otherwise pick the SINGLE most valuable improvement a real user of this product would immediately feel. Not a refactor, not a cleanup, not a rewrite — one concrete improvement to what the product does or how it feels to use. Never repeat an improvement already in the changelog.',
+    '5. When evidence drove the pick, the changelog line says so — e.g. "Fixed crash on empty ingredient list (seen in logs)".',
+    `6. Write the COMPLETE updated file set with cells_write_file — every file the app needs, full contents, including files you did not change. Update ${REQUIRED_CHECK_PATH} so it exercises the new improvement.`,
+    '7. Verify, restart the service, and record the iteration exactly as the run briefing prescribes.'
   ].join('\n')
 }
 
@@ -95,6 +111,23 @@ export const BRIEFING_CELL_ID = '{{CELL_ID}}'
 export const BRIEFING_RUN = '{{RUN}}'
 export const BRIEFING_SNAPSHOT_KEY = '{{SNAPSHOT_KEY}}'
 export const BRIEFING_AUTO_PREAMBLE = '{{AUTO_PREAMBLE}}'
+export const BRIEFING_DIRECTION_BLOCK = '{{DIRECTION_BLOCK}}'
+
+/** Inner placeholder of founderDirectionBlock() the task code fills in. */
+export const DIRECTION_PLACEHOLDER = '{{DIRECTION}}'
+
+/**
+ * Briefing block for a founder-directed revision (manual improve runs that
+ * carry a `direction` task arg). When no direction is present, the task
+ * code substitutes an empty string and the agent picks per its skill.
+ */
+export function founderDirectionBlock(): string {
+  return [
+    `The founder has directed this revision: ${DIRECTION_PLACEHOLDER}`,
+    'This directive IS the single improvement to ship this run — do not substitute your own pick. Interpret it as a product engineer (the smallest excellent version of what they asked), still verify with the self-test, and record the changelog line as usual.',
+    ''
+  ].join('\n')
+}
 
 /** Guard prepended to self-scheduled runs so toggling auto off stops the chain. */
 export function autoRunPreamble(): string {
@@ -113,10 +146,11 @@ export function runBriefingTemplate(): string {
     `Run briefing — ${BRIEFING_KIND} run "${BRIEFING_RUN}" for cell "${BRIEFING_CELL_ID}".`,
     '',
     BRIEFING_AUTO_PREAMBLE,
+    BRIEFING_DIRECTION_BLOCK,
     `Work strictly through your tools against cell_id "${BRIEFING_CELL_ID}". After each stage below, append a progress entry {"ts":"<ISO now>","run":"${BRIEFING_RUN}","stage":...,"detail"?:...} to kv "${PROGRESS_KEY}" (read-modify-write as your identity prescribes).`,
     '',
     'Stages, in order:',
-    `1. build runs: append {"stage":"generating"} and design the smallest real app that demonstrates the idea end to end, within the app contract. improve runs: append {"stage":"reading"}, then follow your improve skill (read the app and changelog, pick the one improvement), then append {"stage":"generating"}.`,
+    `1. build runs: append {"stage":"generating"} and design the smallest real app that demonstrates the idea end to end, within the app contract. improve runs: append {"stage":"reading"}, then follow your improve skill's evidence protocol (idea file, full app + changelog, runtime self-log) before picking the one improvement — a founder directive above IS that improvement; then append {"stage":"generating"}.`,
     '2. Append {"stage":"writing"}. Write every file with cells_write_file, appending {"stage":"file","detail":"<path>"} after each file.',
     `3. Append {"stage":"verifying"}. Run the self-test: cells_exec {"cell_id":"${BRIEFING_CELL_ID}","cmd":"node ${REQUIRED_CHECK_PATH}","timeout_ms":60000}. Then append {"stage":"checked","detail":"<JSON string {\\"exitCode\\":<exit code>,\\"output\\":\\"<first 400 chars of combined stdout+stderr>\\"}>"}.`,
     '4. If the check failed, fix the app and repeat stages 2-3 once. If it still fails, continue — a failed check is recorded, never hidden.',

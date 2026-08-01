@@ -27,6 +27,7 @@ export {
   type FetchResponseLike
 } from './http'
 export type { AgentApi } from './agent-api'
+export type { AgentRunsApi } from './agent-runs'
 export type { RequestApi } from './request-helpers'
 export {
   type AgentDeployRecord,
@@ -34,6 +35,9 @@ export {
   type AgentManifestBudgets,
   type AgentManifestIdentity,
   type AgentManifestSkill,
+  type AgentRunFeedEntry,
+  type AgentRunFeedPage,
+  type AgentRunRecord,
   type CellRecord,
   type CellRequestMethod,
   type CellTier,

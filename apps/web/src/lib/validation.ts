@@ -35,11 +35,30 @@ export const forkIdeaSchema = z.object({
   name: ideaNameSchema
 })
 
+export const IMPROVE_DIRECTION_MAX_LENGTH = 500
+
+/**
+ * Optional founder direction for one manual improve run. The body itself is
+ * optional (the improve endpoint historically has none), but when a
+ * direction is present it must fit the limit.
+ */
+export const improveBodySchema = z.object({
+  direction: z
+    .string()
+    .trim()
+    .max(
+      IMPROVE_DIRECTION_MAX_LENGTH,
+      `direction must be at most ${IMPROVE_DIRECTION_MAX_LENGTH} characters`
+    )
+    .optional()
+})
+
 export const execSchema = z.object({
   cmd: z.string().min(1, 'cmd is required').max(8192, 'cmd must be at most 8192 characters'),
   timeoutMs: z.number().int().positive().max(600_000).optional()
 })
 
+export type ImproveBodyInput = z.infer<typeof improveBodySchema>
 export type CreateIdeaInput = z.infer<typeof createIdeaSchema>
 export type UpdateIdeaInput = z.infer<typeof updateIdeaSchema>
 export type ForkIdeaInput = z.infer<typeof forkIdeaSchema>
