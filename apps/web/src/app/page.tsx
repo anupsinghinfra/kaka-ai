@@ -26,13 +26,13 @@ const STEPS: readonly Step[] = [
   },
   {
     n: '2',
-    title: 'kaka builds and proves v1',
-    body: 'It writes a working product, runs it, and checks that it actually works before calling it version one.'
+    title: 'AI agents build and prove v1',
+    body: 'An agent writes real code — not a template — runs it, and checks it actually works before calling it version one.'
   },
   {
     n: '3',
-    title: 'It ships improvements on its own',
-    body: 'v2, v3, v4 — each iteration is built, verified, and logged while you watch the changelog grow.'
+    title: 'They keep shipping on their own',
+    body: 'Each iteration, an agent picks the single most valuable improvement, builds it, verifies it, and logs it — v2, v3, v4 while you watch.'
   }
 ]
 
@@ -88,13 +88,13 @@ export default function LandingPage() {
     <div className="flex flex-col gap-20 pb-10">
       <section className="flex flex-col items-start gap-6 pt-8">
         <h1 className="max-w-2xl text-4xl font-semibold leading-tight tracking-tight sm:text-5xl">
-          Type your startup idea. <span className="text-gold">Watch it become a product.</span> It
-          keeps improving itself.
+          You bring the startup idea. <span className="text-gold">AI agents build it.</span> And
+          they never stop improving it.
         </h1>
         <p className="max-w-xl text-base leading-relaxed text-muted">
-          kaka turns one sentence into a real, running product — then keeps shipping verified
-          improvements, version after version, without being asked. You bring the idea. It brings
-          everything else.
+          Type one sentence. A team of AI agents writes a real, working product, proves it runs,
+          and keeps shipping verified improvements — v2, v3, v4 — while you watch. Real code.
+          Checked every version. Yours.
         </p>
         <div className="flex flex-wrap items-center gap-3">
           <Link href={startHref} className="btn-primary px-5 py-2.5 text-base">
@@ -123,10 +123,11 @@ export default function LandingPage() {
 
       <section className="flex flex-col gap-6">
         <div>
-          <h2 className="text-xl font-semibold tracking-tight">The product never stops moving.</h2>
+          <h2 className="text-xl font-semibold tracking-tight">An AI team, not a template.</h2>
           <p className="mt-1 max-w-xl text-sm leading-relaxed text-muted">
-            Every version is built, run, and checked before it ships. This is what an idea looks
-            like a few iterations in.
+            Every version is one improvement an agent chose, built, ran, and checked before it
+            shipped — with a restore point saved first, so nothing is ever lost. This is what an
+            idea looks like a few iterations in.
           </p>
         </div>
         <TimelineMock />
