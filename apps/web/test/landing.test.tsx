@@ -61,10 +61,10 @@ describe('landing page', () => {
     // Assert
     expect(html).toContain('You bring the startup idea.')
     expect(html).toContain('AI agents build it.')
-    expect(html).toContain('keeps improving itself')
+    expect(html).toContain('never stop improving it')
     expect(html).toContain('Type the idea')
-    expect(html).toContain('kaka builds and proves v1')
-    expect(html).toContain('It ships improvements on its own')
+    expect(html).toContain('AI agents build and prove v1')
+    expect(html).toContain('They keep shipping on their own')
   })
 
   test('renders the iteration timeline mock with check badges', () => {
