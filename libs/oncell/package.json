@@ -1,0 +1,22 @@
+{
+  "name": "@platform/oncell",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Typed client for the OnCell public API (api.oncell.ai): cell lifecycle, exec, snapshot/fork, and in-cell request helpers. kaka consumes OnCell strictly through this public surface — no shared internals.",
+  "main": "dist/src/index.js",
+  "types": "dist/src/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest"
+  },
+  "dependencies": {
+    "pino": "^9.5.0"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.17.9",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.7.2"
+  }
+}

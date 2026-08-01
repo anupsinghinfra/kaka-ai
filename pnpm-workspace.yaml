@@ -3,3 +3,4 @@ packages:
   - services/*
   - contracts
   - libs/*
+  - scripts/venture

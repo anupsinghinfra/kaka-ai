@@ -9,6 +9,10 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "synth": "pnpm --dir infra synth"
+    "synth": "pnpm --dir infra synth",
+    "golden-path": "pnpm --dir scripts/venture golden-path"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2"
   }
 }

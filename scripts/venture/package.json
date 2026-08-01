@@ -1,0 +1,21 @@
+{
+  "name": "@platform/venture-scripts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Operational venture scripts. golden-path.ts is the EXECUTION.md M1 heartbeat run against real OnCell production via @platform/oncell.",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "jest",
+    "golden-path": "tsx golden-path.ts"
+  },
+  "dependencies": {
+    "@platform/oncell": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.14",
+    "@types/node": "^20.17.9",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "typescript": "^5.7.2"
+  }
+}
