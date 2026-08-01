@@ -1,12 +1,15 @@
 /**
  * POST /api/ideas/[name]/improve — run one auto-improve iteration and
  * stream NDJSON progress events: {stage: reading|snapshotting|generating|
- * writing|verifying}, then {stage: done, result} or {stage: error, error}.
+ * writing|file|verifying|starting}, then {stage: live, url} once the app
+ * is served, then {stage: done, result} or {stage: error, error}. A failed
+ * app start is non-fatal: the done event carries result.serviceError.
  */
 
 import { jsonError, ndjsonResponse } from '@/lib/api'
 import { NothingToImproveError, runImprove, type ImproveEvent } from '@/lib/builder/improve'
-import { isBuilderConfigured } from '@/lib/oncell'
+import { restartAppService } from '@/lib/builder/service'
+import { getOnCell, isBuilderConfigured } from '@/lib/oncell'
 import { currentVersion, getIdea } from '@/lib/registry'
 
 export const dynamic = 'force-dynamic'
@@ -47,7 +50,15 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
   return ndjsonResponse(async (emit) => {
     try {
       const result = await runImprove(idea, ideaText, (event: ImproveEvent) => emit(event))
-      emit({ stage: 'done', result })
+      // The payoff: (re)start the app service so the update is live.
+      emit({ stage: 'starting' })
+      const service = await restartAppService(getOnCell(), idea)
+      if (service.ok) {
+        emit({ stage: 'live', url: service.liveUrl })
+        emit({ stage: 'done', result: { ...result, liveUrl: service.liveUrl } })
+        return
+      }
+      emit({ stage: 'done', result: { ...result, serviceError: service.serviceError } })
     } catch (error: unknown) {
       if (error instanceof NothingToImproveError) {
         emit({

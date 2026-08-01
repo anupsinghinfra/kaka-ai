@@ -1,10 +1,11 @@
 'use client'
 
 /**
- * The idea page's core loop: editable idea text, product status pill, one
- * primary action (Build v1 → Improve), the auto-improve toggle, and the
- * iteration timeline — the "watch it get better" feed. Build and improve
- * both stream NDJSON stage events from the API.
+ * The idea page's core loop: editable idea text, product status pill, the
+ * live product URL (the payoff), one primary action (Build v1 → Improve),
+ * the auto-improve toggle, and the iteration timeline. Build and improve
+ * stream NDJSON stage events from the API; while a run is active a live
+ * activity feed takes over the timeline area so progress dominates.
  */
 
 import { useRouter } from 'next/navigation'
@@ -23,6 +24,8 @@ interface IdeaWorkspaceProps {
   idea?: string
   builderReady: boolean
   iterations: IterationView[]
+  liveUrl?: string
+  serviceError?: string
 }
 
 interface CheckView {
@@ -34,11 +37,15 @@ interface CheckView {
 interface StreamEvent {
   stage: string
   files?: number
+  path?: string
+  url?: string
   result?: {
     iteration?: IterationView
     summary?: string
     files?: string[]
     check?: CheckView
+    liveUrl?: string
+    serviceError?: string
   }
   error?: { code?: string; message?: string; remediation?: string }
 }
@@ -58,7 +65,8 @@ const AUTO_PAUSE_MS = 2500
 const BUILD_STAGE_LABELS: Record<string, string> = {
   generating: 'Claude is writing your v1…',
   writing: 'Shipping the code into your workspace…',
-  verifying: 'Proving it runs…'
+  verifying: 'Proving it runs…',
+  starting: 'Starting your app…'
 }
 
 const IMPROVE_STAGE_LABELS: Record<string, string> = {
@@ -66,7 +74,35 @@ const IMPROVE_STAGE_LABELS: Record<string, string> = {
   snapshotting: 'Saving a restore point…',
   generating: 'Finding the most valuable improvement…',
   writing: 'Shipping the update…',
-  verifying: 'Proving it still runs…'
+  verifying: 'Proving it still runs…',
+  starting: 'Starting your app…'
+}
+
+interface ActivityLine {
+  at: string
+  text: string
+}
+
+/** One feed line per stream event — the "watch it happen" narration. */
+function feedText(kind: RunKind, event: StreamEvent, targetV: number): string | undefined {
+  if (event.stage === 'file') {
+    return event.path !== undefined ? `${event.path} ✓` : undefined
+  }
+  if (event.stage === 'writing') {
+    return event.files !== undefined ? `Writing ${event.files} files…` : 'Writing files…'
+  }
+  if (event.stage === 'live') {
+    return event.url !== undefined ? `Live at ${event.url} ↗` : undefined
+  }
+  if (event.stage === 'done') {
+    return event.result?.serviceError !== undefined
+      ? `v${targetV} shipped — but the app did not start`
+      : `v${targetV} shipped ✓`
+  }
+  if (event.stage === 'error') {
+    return `Failed: ${event.error?.message ?? 'the run failed'}`
+  }
+  return (kind === 'building' ? BUILD_STAGE_LABELS : IMPROVE_STAGE_LABELS)[event.stage] ?? `${event.stage}…`
 }
 
 function maxVersion(iterations: readonly IterationView[]): number {
@@ -112,12 +148,32 @@ async function readNdjsonStream(
   }
 }
 
-export function IdeaWorkspace({ name, idea, builderReady, iterations: initial }: IdeaWorkspaceProps) {
+export function IdeaWorkspace({
+  name,
+  idea,
+  builderReady,
+  iterations: initial,
+  liveUrl: initialLiveUrl,
+  serviceError: initialServiceError
+}: IdeaWorkspaceProps) {
   const router = useRouter()
   const [iterations, setIterations] = useState<readonly IterationView[]>(initial)
   const [run, setRun] = useState<RunState | undefined>(undefined)
   const [error, setError] = useState<string | undefined>(undefined)
   const [lastCheck, setLastCheck] = useState<CheckView | undefined>(undefined)
+  const [liveUrl, setLiveUrl] = useState<string | undefined>(initialLiveUrl)
+  const [serviceError, setServiceError] = useState<string | undefined>(initialServiceError)
+  const [isStartingApp, setIsStartingApp] = useState(false)
+  const [activity, setActivity] = useState<readonly ActivityLine[]>([])
+  const feedRef = useRef<HTMLDivElement | null>(null)
+
+  // Keep the live feed pinned to its newest line.
+  useEffect(() => {
+    const feed = feedRef.current
+    if (feed !== null) {
+      feed.scrollTop = feed.scrollHeight
+    }
+  }, [activity])
 
   const [isEditingIdea, setIsEditingIdea] = useState(false)
   const [ideaDraft, setIdeaDraft] = useState(idea ?? '')
@@ -163,6 +219,7 @@ export function IdeaWorkspace({ name, idea, builderReady, iterations: initial }:
     const targetV = kind === 'building' ? 1 : maxVersionRefSafe() + 1
     setError(undefined)
     setLastCheck(undefined)
+    setActivity([])
     setRun({ kind, stage: kind === 'building' ? 'generating' : 'reading', targetV })
     try {
       const endpoint = kind === 'building' ? 'build' : 'improve'
@@ -177,6 +234,11 @@ export function IdeaWorkspace({ name, idea, builderReady, iterations: initial }:
       }
       let succeeded = false
       await readNdjsonStream(response, (event) => {
+        const line = feedText(kind, event, targetV)
+        if (line !== undefined) {
+          const at = new Date().toLocaleTimeString('en-US', { hour12: false })
+          setActivity((previous) => [...previous, { at, text: line }])
+        }
         if (event.stage === 'done') {
           succeeded = true
           applyDone(kind, event)
@@ -187,6 +249,17 @@ export function IdeaWorkspace({ name, idea, builderReady, iterations: initial }:
           setError(
             event.error?.remediation !== undefined ? `${base} — ${event.error.remediation}` : base
           )
+          return
+        }
+        if (event.stage === 'live') {
+          if (event.url !== undefined) {
+            setLiveUrl(event.url)
+            setServiceError(undefined)
+          }
+          return
+        }
+        if (event.stage === 'file') {
+          // Feed-only detail: the run stage stays "writing".
           return
         }
         setRun({ kind, stage: event.stage, files: event.files, targetV })
@@ -218,7 +291,36 @@ export function IdeaWorkspace({ name, idea, builderReady, iterations: initial }:
     if (event.result?.check !== undefined) {
       setLastCheck(event.result.check)
     }
+    if (event.result?.liveUrl !== undefined) {
+      setLiveUrl(event.result.liveUrl)
+      setServiceError(undefined)
+    } else if (event.result?.serviceError !== undefined) {
+      setLiveUrl(undefined)
+      setServiceError(event.result.serviceError)
+    }
     router.refresh()
+  }
+
+  /** Retry starting the app service after a failed post-build start. */
+  async function handleStartApp(): Promise<void> {
+    if (isStartingApp) {
+      return
+    }
+    setIsStartingApp(true)
+    setError(undefined)
+    try {
+      const body = await apiFetch<{ liveUrl: string }>(
+        `/api/ideas/${encodeURIComponent(name)}/app/start`,
+        { method: 'POST' }
+      )
+      setLiveUrl(body.liveUrl)
+      setServiceError(undefined)
+      router.refresh()
+    } catch (startError: unknown) {
+      setServiceError(describeError(startError))
+    } finally {
+      setIsStartingApp(false)
+    }
   }
 
   async function handleBuild(): Promise<void> {
@@ -324,6 +426,63 @@ export function IdeaWorkspace({ name, idea, builderReady, iterations: initial }:
             {pill.label}
           </span>
         </div>
+
+        {/* THE PAYOFF: the live product URL, huge and unmissable. */}
+        {liveUrl !== undefined ? (
+          <div className="flex max-w-2xl flex-col gap-2.5 rounded-lg border border-gold/60 bg-gold/10 p-4">
+            <a
+              href={liveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-primary self-start px-6 py-3 text-lg font-semibold"
+            >
+              Open your product ↗
+            </a>
+            <a
+              href={liveUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="break-all font-mono text-sm text-gold underline-offset-4 hover:underline"
+            >
+              {liveUrl}
+            </a>
+          </div>
+        ) : version === 0 ? (
+          <p className="text-xs text-faint">
+            Your product&apos;s URL appears here when v1 ships.
+          </p>
+        ) : (
+          serviceError === undefined &&
+          !isRunning && (
+            <div className="flex max-w-2xl flex-wrap items-center gap-3">
+              <p className="text-xs text-faint">Your product isn&apos;t running right now.</p>
+              <button
+                type="button"
+                className="btn"
+                onClick={() => void handleStartApp()}
+                disabled={isStartingApp}
+              >
+                {isStartingApp ? 'Starting…' : 'Start app'}
+              </button>
+            </div>
+          )
+        )}
+
+        {serviceError !== undefined && (
+          <div className="flex max-w-2xl flex-wrap items-center justify-between gap-3 rounded-md border border-gold/40 bg-gold/5 px-3 py-2">
+            <p className="min-w-0 flex-1 text-sm text-gold/90">
+              The app isn&apos;t running: {serviceError}
+            </p>
+            <button
+              type="button"
+              className="btn shrink-0"
+              onClick={() => void handleStartApp()}
+              disabled={isStartingApp || isRunning}
+            >
+              {isStartingApp ? 'Starting…' : 'Start app'}
+            </button>
+          </div>
+        )}
 
         {isEditingIdea ? (
           <div className="flex flex-col gap-2">
@@ -446,50 +605,75 @@ export function IdeaWorkspace({ name, idea, builderReady, iterations: initial }:
         {error !== undefined && <p className="max-w-2xl text-sm text-bad">{error}</p>}
       </section>
 
-      {/* The iteration timeline — watch it get better. */}
+      {/* While a run is active, a live activity feed takes over this panel;
+          otherwise it is the iteration timeline — watch it get better. */}
       <section className="panel p-5">
-        <h2 className="section-title mb-4">Every version so far</h2>
-        {timeline.length === 0 && run === undefined ? (
-          <p className="text-sm text-muted">
-            Nothing shipped yet. Hit <span className="text-gold">Build v1</span> and watch this
-            feed fill up.
-          </p>
-        ) : (
-          <ol className="flex flex-col">
-            {timeline.map((iteration) => (
-              <li key={iteration.v} className="flex items-baseline gap-3 border-l border-edge py-2 pl-4">
-                <span className="w-9 shrink-0 font-mono text-xs font-medium text-gold">
-                  v{iteration.v}
-                </span>
-                <span className="min-w-0 flex-1 text-sm leading-relaxed text-fg">
-                  {iteration.v === 1 ? `Built: ${iteration.summary}` : iteration.summary}
-                </span>
-                <span
-                  className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px] ${
-                    iteration.checkPassed
-                      ? 'border-good/50 bg-good/10 text-good'
-                      : 'border-bad/50 bg-bad/10 text-bad'
-                  }`}
-                >
-                  {iteration.checkPassed ? 'check ✓' : 'check ✗'}
-                </span>
-                <span className="shrink-0 font-mono text-[11px] text-faint">
-                  {formatAt(iteration.at)}
-                </span>
-              </li>
-            ))}
-            {run !== undefined && stageLabel !== undefined && (
-              <li className="flex items-center gap-3 border-l border-gold/40 py-2 pl-4">
-                <span className="w-9 shrink-0 font-mono text-xs font-medium text-gold">
-                  v{run.targetV}
-                </span>
-                <span className="flex items-center gap-2 text-sm text-muted">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-gold" />
+        {run !== undefined ? (
+          <>
+            <h2 className="section-title mb-4 flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-gold" />
+              {run.kind === 'building' ? 'Building v1 — live' : `Improving to v${run.targetV} — live`}
+            </h2>
+            <div
+              ref={feedRef}
+              className="max-h-80 overflow-y-auto rounded-md border border-gold/30 bg-ink p-3 font-mono text-xs leading-relaxed"
+            >
+              <ol className="flex flex-col gap-1">
+                {activity.map((line, index) => (
+                  <li key={index} className="flex gap-3">
+                    <span className="shrink-0 text-faint">{line.at}</span>
+                    <span className={line.text.endsWith('✓') ? 'text-good' : 'text-fg'}>
+                      {line.text}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+              {stageLabel !== undefined && (
+                <p className="mt-2 flex items-center gap-2 text-gold">
+                  <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-gold" />
                   {stageLabel}
-                </span>
-              </li>
+                </p>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            <h2 className="section-title mb-4">Every version so far</h2>
+            {timeline.length === 0 ? (
+              <p className="text-sm text-muted">
+                Nothing shipped yet. Hit <span className="text-gold">Build v1</span> and watch this
+                feed fill up.
+              </p>
+            ) : (
+              <ol className="flex flex-col">
+                {timeline.map((iteration) => (
+                  <li
+                    key={iteration.v}
+                    className="flex items-baseline gap-3 border-l border-edge py-2 pl-4"
+                  >
+                    <span className="w-9 shrink-0 font-mono text-xs font-medium text-gold">
+                      v{iteration.v}
+                    </span>
+                    <span className="min-w-0 flex-1 text-sm leading-relaxed text-fg">
+                      {iteration.v === 1 ? `Built: ${iteration.summary}` : iteration.summary}
+                    </span>
+                    <span
+                      className={`shrink-0 rounded-full border px-2 py-0.5 font-mono text-[10px] ${
+                        iteration.checkPassed
+                          ? 'border-good/50 bg-good/10 text-good'
+                          : 'border-bad/50 bg-bad/10 text-bad'
+                      }`}
+                    >
+                      {iteration.checkPassed ? 'check ✓' : 'check ✗'}
+                    </span>
+                    <span className="shrink-0 font-mono text-[11px] text-faint">
+                      {formatAt(iteration.at)}
+                    </span>
+                  </li>
+                ))}
+              </ol>
             )}
-          </ol>
+          </>
         )}
 
         {lastCheck !== undefined && lastCheck.exit_code !== 0 && (

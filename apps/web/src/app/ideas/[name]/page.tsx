@@ -71,6 +71,8 @@ export default async function IdeaPage({ params }: IdeaPageProps) {
       <IdeaWorkspace
         name={idea.name}
         {...(idea.idea !== undefined ? { idea: idea.idea } : {})}
+        {...(idea.liveUrl !== undefined ? { liveUrl: idea.liveUrl } : {})}
+        {...(idea.serviceError !== undefined ? { serviceError: idea.serviceError } : {})}
         builderReady={builderReady}
         iterations={idea.iterations.map((iteration) => ({
           v: iteration.v,

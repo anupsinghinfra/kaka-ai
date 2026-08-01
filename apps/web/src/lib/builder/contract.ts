@@ -5,6 +5,7 @@
 
 export const MAX_FILES = 20
 export const MAX_TOTAL_BYTES = 200 * 1024
+export const REQUIRED_SERVER_PATH = 'src/server.js'
 export const REQUIRED_CHECK_PATH = 'src/check.js'
 export const CHECK_OK_MARKER = 'CHECK_OK'
 export const BUILDER_TOOL_NAME = 'emit_app'
@@ -58,7 +59,9 @@ export function builderSystemPrompt(): string {
     '- Node 22 standard library ONLY. The sandbox has NO network access and NO npm install. Never reference npm packages, package installation, or external URLs at runtime.',
     `- At most ${MAX_FILES} files and ${MAX_TOTAL_BYTES} bytes of content in total. Keep it small and focused.`,
     '- All paths are relative (e.g. "src/app.js"). No leading "/", no "..", no duplicates.',
-    `- You MUST include "${REQUIRED_CHECK_PATH}": a self-test that exercises the app\'s core logic, prints "${CHECK_OK_MARKER}" on success, and exits non-zero on failure. It must run with plain "node ${REQUIRED_CHECK_PATH}" from the app root.`,
+    `- The entry point MUST be "${REQUIRED_SERVER_PATH}": an HTTP server (node:http) that listens on process.env.PORT || 3000 and serves the product\'s user interface at "/" — self-contained HTML/CSS/JS, inline or read from your other files — plus any API routes the product needs. Bind to 0.0.0.0 or use the default host. Plain "node ${REQUIRED_SERVER_PATH}" must start it with no flags.`,
+    `- You MUST include "${REQUIRED_CHECK_PATH}": a self-test that starts the server from ${REQUIRED_SERVER_PATH} on an ephemeral port (listen on port 0), makes real HTTP requests to it, asserts the responses, prints "${CHECK_OK_MARKER}" on success, and exits 0 (non-zero on failure). It must run with plain "node ${REQUIRED_CHECK_PATH}" from the app root.`,
+    `- In ${REQUIRED_CHECK_PATH}, connect to "127.0.0.1" — NEVER the hostname "localhost"; the sandbox has no name resolution.`,
     '- CommonJS (require) or ESM with .mjs — pick one and be consistent. If you include a package.json it must not declare dependencies.',
     '',
     `Respond by calling the ${BUILDER_TOOL_NAME} tool with {summary, files}. If for any reason you cannot call the tool, respond with EXACTLY one fenced \`\`\`json code block containing the same {"summary", "files"} object and nothing else.`

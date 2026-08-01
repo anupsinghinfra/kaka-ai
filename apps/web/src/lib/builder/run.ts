@@ -39,6 +39,7 @@ export interface BuildResult {
 export type BuildEvent =
   | { readonly stage: 'generating' }
   | { readonly stage: 'writing'; readonly files: number }
+  | { readonly stage: 'file'; readonly path: string }
   | { readonly stage: 'verifying' }
 
 /** Condenses a check result for the registry and the next improve prompt. */
@@ -78,6 +79,7 @@ export async function runBuild(
   onEvent({ stage: 'writing', files: app.files.length })
   for (const file of app.files) {
     await oncell.writeFile(idea.cellId, file.path, file.content)
+    onEvent({ stage: 'file', path: file.path })
   }
 
   onEvent({ stage: 'verifying' })

@@ -157,6 +157,35 @@ describe('registry store', () => {
     ).toThrow(/not found/)
   })
 
+  test('round-trips liveUrl and serviceError through save and load', () => {
+    // Arrange
+    const idea = makeIdea({
+      liveUrl: 'https://dev--v-lemonade-stand.cells.oncell.ai',
+      serviceError: 'the app crashed on boot'
+    })
+
+    // Act
+    addIdea(idea)
+
+    // Assert
+    const loaded = getIdea('lemonade-stand')
+    expect(loaded?.liveUrl).toBe('https://dev--v-lemonade-stand.cells.oncell.ai')
+    expect(loaded?.serviceError).toBe('the app crashed on boot')
+  })
+
+  test('updateIdea clears service state via an explicit undefined patch', () => {
+    // Arrange
+    addIdea(makeIdea({ liveUrl: 'https://x.cells.oncell.ai', serviceError: 'boom' }))
+
+    // Act
+    updateIdea('lemonade-stand', { serviceError: undefined })
+
+    // Assert — cleared on load, gone from the persisted JSON.
+    expect(getIdea('lemonade-stand')?.serviceError).toBeUndefined()
+    expect(getIdea('lemonade-stand')?.liveUrl).toBe('https://x.cells.oncell.ai')
+    expect(readFileSync(registryPath(), 'utf8')).not.toContain('serviceError')
+  })
+
   test('removeIdea deletes the entry and reports whether it existed', () => {
     // Arrange
     addIdea(makeIdea())

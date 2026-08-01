@@ -18,7 +18,8 @@ import {
   CHECK_OK_MARKER,
   MAX_FILES,
   MAX_TOTAL_BYTES,
-  REQUIRED_CHECK_PATH
+  REQUIRED_CHECK_PATH,
+  REQUIRED_SERVER_PATH
 } from './contract'
 import { requestAppViaTool } from './model'
 import { CHECK_TIMEOUT_MS, toLastCheck, type BuildCheck } from './run'
@@ -40,6 +41,7 @@ export type ImproveEvent =
   | { readonly stage: 'snapshotting' }
   | { readonly stage: 'generating' }
   | { readonly stage: 'writing'; readonly files: number }
+  | { readonly stage: 'file'; readonly path: string }
   | { readonly stage: 'verifying' }
 
 export interface ImproveResult {
@@ -116,7 +118,9 @@ export function improveSystemPrompt(): string {
     '- Node 22 standard library ONLY. The sandbox has NO network access and NO npm install. Never reference npm packages, package installation, or external URLs at runtime.',
     `- At most ${MAX_FILES} files and ${MAX_TOTAL_BYTES} bytes of content in total.`,
     '- All paths are relative (e.g. "src/app.js"). No leading "/", no "..", no duplicates.',
+    `- The entry point stays "${REQUIRED_SERVER_PATH}": an HTTP server that listens on process.env.PORT || 3000 and serves the product's user interface at "/" plus its API routes. Plain "node ${REQUIRED_SERVER_PATH}" must start it with no flags.`,
     `- You MUST include "${REQUIRED_CHECK_PATH}": a self-test that exercises the app's core logic — including your new improvement — prints "${CHECK_OK_MARKER}" on success, and exits non-zero on failure. It must run with plain "node ${REQUIRED_CHECK_PATH}" from the app root.`,
+    `- ${REQUIRED_CHECK_PATH} must start the server on an ephemeral port (listen on port 0) and test it over real HTTP against "127.0.0.1" — NEVER the hostname "localhost"; the sandbox has no name resolution.`,
     '- Keep the module system the current app already uses.',
     '',
     'Return the COMPLETE updated file set: every file the app needs, with full contents, including files you did not change. The summary must be ONE changelog line written for users, e.g. "Added per-person rounding so split totals always match the bill."',
@@ -214,6 +218,7 @@ export async function runImprove(
   onEvent({ stage: 'writing', files: app.files.length })
   for (const file of app.files) {
     await oncell.writeFile(idea.cellId, file.path, file.content)
+    onEvent({ stage: 'file', path: file.path })
   }
 
   onEvent({ stage: 'verifying' })

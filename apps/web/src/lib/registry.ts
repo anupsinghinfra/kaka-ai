@@ -44,7 +44,11 @@ export const ideaSchema = z.object({
   builtAt: z.string().optional(),
   snapshots: z.array(snapshotEntrySchema),
   iterations: z.array(iterationSchema).default([]),
-  lastCheck: lastCheckSchema.optional()
+  lastCheck: lastCheckSchema.optional(),
+  /** Where the built app is being served — the cell's preview URL. */
+  liveUrl: z.string().optional(),
+  /** Why the latest app-service start failed (cleared on a successful start). */
+  serviceError: z.string().optional()
 })
 
 export const registrySchema = z.object({

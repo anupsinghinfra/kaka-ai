@@ -58,6 +58,25 @@ export interface ForkCellInput {
   readonly customerId: string
 }
 
+/** Input for POST /api/v1/cells/{id}/service (start the app service). */
+export interface StartServiceInput {
+  /** Command run inside the cell with PORT injected, e.g. "node src/server.js". */
+  readonly cmd: string
+  /** Extra environment variables for the service process. */
+  readonly env?: Readonly<Record<string, string>>
+}
+
+/**
+ * A service record as returned by the /service endpoints. Once running, the
+ * cell's preview_url (https://{cell_id}.cells.oncell.ai) serves the app.
+ */
+export interface ServiceRecord {
+  readonly running: boolean
+  readonly port?: number
+  readonly cmd?: string
+  readonly [key: string]: unknown
+}
+
 /** Input for POST /api/v1/cells/{id}/exec. */
 export interface ExecInput {
   /** Shell command, 1..8192 chars. */
@@ -124,6 +143,12 @@ export interface OnCellClient {
   listSnapshots(cellId: string): Promise<readonly SnapshotRecord[]>
   /** POST /api/v1/cells/{id}/fork. */
   forkCell(cellId: string, input: ForkCellInput): Promise<CellRecord>
+  /** POST /api/v1/cells/{id}/service — runs cmd in the cell with PORT injected. */
+  startService(cellId: string, input: StartServiceInput): Promise<ServiceRecord>
+  /** GET /api/v1/cells/{id}/service — 503 NO_APP_RUNNING until started. */
+  getService(cellId: string): Promise<ServiceRecord>
+  /** DELETE /api/v1/cells/{id}/service — 503 NO_APP_RUNNING when nothing runs. */
+  stopService(cellId: string): Promise<void>
   /** Raw POST /api/v1/cells/{id}/request escape hatch. */
   request<T = unknown>(
     cellId: string,

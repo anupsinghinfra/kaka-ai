@@ -15,7 +15,10 @@ const mockClient = {
   readFile: vi.fn(),
   writeFile: vi.fn(),
   snapshotCell: vi.fn(),
-  exec: vi.fn()
+  exec: vi.fn(),
+  getCell: vi.fn(),
+  startService: vi.fn(),
+  stopService: vi.fn()
 }
 
 vi.mock('@/lib/oncell', () => ({
@@ -51,10 +54,14 @@ function request(name: string): Request {
 interface StreamEvent {
   stage: string
   files?: number
+  path?: string
+  url?: string
   result?: {
     iteration: { v: number; summary: string; checkPassed: boolean; snapshotKey?: string }
     files: string[]
     check: { exit_code: number }
+    liveUrl?: string
+    serviceError?: string
   }
   error?: { code?: string; message?: string }
 }
@@ -118,6 +125,13 @@ function arrangeHealthyCell(): void {
     snapshot_key: 'snap-improve-1',
     created_at: '2026-08-01T02:00:00.000Z'
   })
+  mockClient.stopService.mockResolvedValue(undefined)
+  mockClient.startService.mockResolvedValue({ running: true, port: 3000 })
+  mockClient.getCell.mockResolvedValue({
+    cell_id: 'dev--v-acme',
+    status: 'running',
+    preview_url: 'https://dev--v-acme.cells.oncell.ai'
+  })
 }
 
 describe('POST /api/ideas/[name]/improve', () => {
@@ -162,15 +176,30 @@ describe('POST /api/ideas/[name]/improve', () => {
       'snapshotting',
       'generating',
       'writing',
+      'file',
+      'file',
       'verifying',
+      'starting',
+      'live',
       'done'
     ])
+    expect(events.filter((event) => event.stage === 'file').map((event) => event.path)).toEqual([
+      'src/app.js',
+      'src/check.js'
+    ])
+    const live = events.find((event) => event.stage === 'live')
+    expect(live?.url).toBe('https://dev--v-acme.cells.oncell.ai')
     const done = events.at(-1)
     expect(done?.result?.iteration).toMatchObject({
       v: 2,
       summary: 'Added a search box so shoppers find anvils faster.',
       checkPassed: true,
       snapshotKey: 'snap-improve-1'
+    })
+    expect(done?.result?.liveUrl).toBe('https://dev--v-acme.cells.oncell.ai')
+    // The app was restarted with the contract entry point.
+    expect(mockClient.startService).toHaveBeenCalledWith('dev--v-acme', {
+      cmd: 'node src/server.js'
     })
 
     // Snapshot is the rollback point: taken BEFORE any file is written.
@@ -183,6 +212,8 @@ describe('POST /api/ideas/[name]/improve', () => {
     expect(idea?.iterations.map((iteration) => iteration.v)).toEqual([1, 2])
     expect(idea?.iterations[1]?.snapshotKey).toBe('snap-improve-1')
     expect(idea?.lastCheck?.exitCode).toBe(0)
+    expect(idea?.liveUrl).toBe('https://dev--v-acme.cells.oncell.ai')
+    expect(idea?.serviceError).toBeUndefined()
   })
 
   test('a failed check is recorded as a failed iteration and fed forward', async () => {

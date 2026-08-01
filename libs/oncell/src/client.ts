@@ -22,7 +22,9 @@ import type {
   ExecResult,
   ForkCellInput,
   OnCellClient,
-  SnapshotRecord
+  ServiceRecord,
+  SnapshotRecord,
+  StartServiceInput
 } from './types'
 import { requireNonEmptyString, validateExecInput } from './validate'
 
@@ -201,6 +203,44 @@ export function createOnCellClient(options: OnCellClientOptions = {}): OnCellCli
     return result.data
   }
 
+  // The /service endpoints use 503 semantically (NO_APP_RUNNING), so the
+  // transport's transient-503 retry must never apply to them — every call
+  // below is idempotent: false.
+  async function startService(cellId: string, input: StartServiceInput): Promise<ServiceRecord> {
+    requireNonEmptyString(cellId, 'cellId')
+    requireNonEmptyString(input.cmd, 'cmd')
+    const body = {
+      cmd: input.cmd,
+      ...(input.env !== undefined ? { env: input.env } : {})
+    }
+    const result = await sendRequest<ServiceRecord>(config, {
+      method: 'POST',
+      path: cellPath(cellId, '/service'),
+      body,
+      idempotent: false
+    })
+    return result.data
+  }
+
+  async function getService(cellId: string): Promise<ServiceRecord> {
+    requireNonEmptyString(cellId, 'cellId')
+    const result = await sendRequest<ServiceRecord>(config, {
+      method: 'GET',
+      path: cellPath(cellId, '/service'),
+      idempotent: false
+    })
+    return result.data
+  }
+
+  async function stopService(cellId: string): Promise<void> {
+    requireNonEmptyString(cellId, 'cellId')
+    await sendRequest<unknown>(config, {
+      method: 'DELETE',
+      path: cellPath(cellId, '/service'),
+      idempotent: false
+    })
+  }
+
   return Object.freeze({
     createCell,
     getCell,
@@ -212,6 +252,9 @@ export function createOnCellClient(options: OnCellClientOptions = {}): OnCellCli
     snapshotCell,
     listSnapshots,
     forkCell,
+    startService,
+    getService,
+    stopService,
     ...createRequestApi(config)
   })
 }

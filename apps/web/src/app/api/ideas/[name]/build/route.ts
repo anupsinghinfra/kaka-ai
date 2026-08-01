@@ -1,12 +1,15 @@
 /**
  * POST /api/ideas/[name]/build — build v1 and stream NDJSON progress
- * events: {stage: generating|writing|verifying}, then {stage: done,
- * result} or {stage: error, error}.
+ * events: {stage: generating|writing|file|verifying|starting}, then
+ * {stage: live, url} once the app is served, then {stage: done, result}
+ * or {stage: error, error}. A failed app start is non-fatal: the done
+ * event carries result.serviceError instead of result.liveUrl.
  */
 
 import { jsonError, ndjsonResponse } from '@/lib/api'
 import { runBuild, type BuildEvent } from '@/lib/builder/run'
-import { isBuilderConfigured } from '@/lib/oncell'
+import { restartAppService } from '@/lib/builder/service'
+import { getOnCell, isBuilderConfigured } from '@/lib/oncell'
 import { getIdea } from '@/lib/registry'
 
 export const dynamic = 'force-dynamic'
@@ -39,6 +42,14 @@ export async function POST(_request: Request, context: RouteContext): Promise<Re
 
   return ndjsonResponse(async (emit) => {
     const result = await runBuild(idea, ideaText, (event: BuildEvent) => emit(event))
-    emit({ stage: 'done', result })
+    // The payoff: (re)start the app service so the idea has a live URL.
+    emit({ stage: 'starting' })
+    const service = await restartAppService(getOnCell(), idea)
+    if (service.ok) {
+      emit({ stage: 'live', url: service.liveUrl })
+      emit({ stage: 'done', result: { ...result, liveUrl: service.liveUrl } })
+      return
+    }
+    emit({ stage: 'done', result: { ...result, serviceError: service.serviceError } })
   })
 }

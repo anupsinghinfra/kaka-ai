@@ -39,7 +39,9 @@ export {
   type ListFilesResult,
   type OnCellClient,
   type ReadFileResult,
-  type SnapshotRecord
+  type ServiceRecord,
+  type SnapshotRecord,
+  type StartServiceInput
 } from './types'
 export {
   MAX_CMD_LENGTH,
