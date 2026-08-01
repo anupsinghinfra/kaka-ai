@@ -37,9 +37,10 @@ vi.mock('@/lib/oncell', () => ({
   resetOnCellClientForTests: () => undefined
 }))
 
-import { GET as listVenturesRoute, POST as createVentureRoute } from '@/app/api/ventures/route'
-import { POST as execRoute } from '@/app/api/ventures/[name]/exec/route'
-import { addVenture } from '@/lib/registry'
+import { GET as listIdeasRoute, POST as createIdeaRoute } from '@/app/api/ideas/route'
+import { PATCH as patchIdeaRoute } from '@/app/api/ideas/[name]/route'
+import { POST as execRoute } from '@/app/api/ideas/[name]/exec/route'
+import { addIdea, getIdea } from '@/lib/registry'
 
 function jsonRequest(url: string, body: unknown): Request {
   return new Request(url, {
@@ -67,36 +68,36 @@ describe('API routes', () => {
     rmSync(home, { recursive: true, force: true })
   })
 
-  describe('POST /api/ventures', () => {
-    test('creates the cell, seeds identity, and registers the venture', async () => {
+  describe('POST /api/ideas', () => {
+    test('creates the cell, seeds identity, and registers the idea', async () => {
       // Arrange
       mockClient.createCell.mockResolvedValue({ cell_id: 'dev--v-acme', status: 'active' })
       mockClient.writeFile.mockResolvedValue({})
       mockClient.kvSet.mockResolvedValue({})
 
       // Act
-      const response = await createVentureRoute(
-        jsonRequest('http://localhost/api/ventures', { name: 'acme', idea: 'sell anvils' })
+      const response = await createIdeaRoute(
+        jsonRequest('http://localhost/api/ideas', { name: 'acme', idea: 'sell anvils' })
       )
-      const body = (await response.json()) as { venture: { name: string; cellId: string } }
+      const body = (await response.json()) as { idea: { name: string; cellId: string } }
 
       // Assert
       expect(response.status).toBe(201)
-      expect(body.venture.name).toBe('acme')
-      expect(body.venture.cellId).toBe('dev--v-acme')
+      expect(body.idea.name).toBe('acme')
+      expect(body.idea.cellId).toBe('dev--v-acme')
       expect(mockClient.createCell).toHaveBeenCalledWith({ customerId: 'v-acme' })
       expect(mockClient.writeFile).toHaveBeenCalledWith(
         'dev--v-acme',
-        '.kaka/venture.json',
+        '.kaka/idea.json',
         expect.stringContaining('"acme"')
       )
-      expect(mockClient.kvSet).toHaveBeenCalledWith('dev--v-acme', 'venture:name', 'acme')
+      expect(mockClient.kvSet).toHaveBeenCalledWith('dev--v-acme', 'idea:name', 'acme')
     })
 
     test('rejects an invalid name with the machine-readable error envelope', async () => {
       // Act
-      const response = await createVentureRoute(
-        jsonRequest('http://localhost/api/ventures', { name: 'Not Kebab!' })
+      const response = await createIdeaRoute(
+        jsonRequest('http://localhost/api/ideas', { name: 'Not Kebab!' })
       )
       const body = (await response.json()) as { error: { code: string; message: string } }
 
@@ -107,44 +108,47 @@ describe('API routes', () => {
       expect(mockClient.createCell).not.toHaveBeenCalled()
     })
 
-    test('returns 409 VENTURE_EXISTS for a duplicate name', async () => {
+    test('returns 409 IDEA_EXISTS for a duplicate name', async () => {
       // Arrange
-      addVenture({
+      addIdea({
         name: 'acme',
         cellId: 'dev--v-acme',
         customerId: 'v-acme',
         createdAt: '2026-08-01T00:00:00.000Z',
-        snapshots: []
+        snapshots: [],
+        iterations: []
       })
 
       // Act
-      const response = await createVentureRoute(
-        jsonRequest('http://localhost/api/ventures', { name: 'acme' })
+      const response = await createIdeaRoute(
+        jsonRequest('http://localhost/api/ideas', { name: 'acme' })
       )
       const body = (await response.json()) as { error: { code: string } }
 
       // Assert
       expect(response.status).toBe(409)
-      expect(body.error.code).toBe('VENTURE_EXISTS')
+      expect(body.error.code).toBe('IDEA_EXISTS')
     })
   })
 
-  describe('GET /api/ventures', () => {
-    test('lists ventures with live status, tolerating status errors as unknown', async () => {
+  describe('GET /api/ideas', () => {
+    test('lists ideas with live status, tolerating status errors as unknown', async () => {
       // Arrange
-      addVenture({
+      addIdea({
         name: 'alive',
         cellId: 'dev--v-alive',
         customerId: 'v-alive',
         createdAt: '2026-08-01T00:00:00.000Z',
-        snapshots: []
+        snapshots: [],
+        iterations: []
       })
-      addVenture({
+      addIdea({
         name: 'ghost',
         cellId: 'dev--v-ghost',
         customerId: 'v-ghost',
         createdAt: '2026-08-01T00:00:00.000Z',
-        snapshots: []
+        snapshots: [],
+        iterations: []
       })
       mockClient.getCell.mockImplementation(async (cellId: string) => {
         if (cellId === 'dev--v-alive') {
@@ -154,24 +158,92 @@ describe('API routes', () => {
       })
 
       // Act
-      const response = await listVenturesRoute()
-      const body = (await response.json()) as { ventures: { name: string; status: string }[] }
+      const response = await listIdeasRoute()
+      const body = (await response.json()) as { ideas: { name: string; status: string }[] }
 
       // Assert
       expect(response.status).toBe(200)
-      const byName = Object.fromEntries(body.ventures.map((venture) => [venture.name, venture.status]))
+      const byName = Object.fromEntries(body.ideas.map((idea) => [idea.name, idea.status]))
       expect(byName).toEqual({ alive: 'active', ghost: 'unknown' })
     })
   })
 
-  describe('POST /api/ventures/[name]/exec', () => {
+  describe('PATCH /api/ideas/[name]', () => {
     beforeEach(() => {
-      addVenture({
+      addIdea({
+        name: 'acme',
+        cellId: 'dev--v-acme',
+        customerId: 'v-acme',
+        idea: 'sell anvils',
+        createdAt: '2026-08-01T00:00:00.000Z',
+        snapshots: [],
+        iterations: []
+      })
+    })
+
+    test('updates the idea text', async () => {
+      // Act
+      const response = await patchIdeaRoute(
+        new Request('http://localhost/api/ideas/acme', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idea: 'sell rocket anvils' })
+        }),
+        params('acme')
+      )
+      const body = (await response.json()) as { idea: { idea: string } }
+
+      // Assert
+      expect(response.status).toBe(200)
+      expect(body.idea.idea).toBe('sell rocket anvils')
+      expect(getIdea('acme')?.idea).toBe('sell rocket anvils')
+    })
+
+    test('rejects an empty idea text', async () => {
+      // Act
+      const response = await patchIdeaRoute(
+        new Request('http://localhost/api/ideas/acme', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idea: '   ' })
+        }),
+        params('acme')
+      )
+      const body = (await response.json()) as { error: { code: string } }
+
+      // Assert
+      expect(response.status).toBe(400)
+      expect(body.error.code).toBe('VALIDATION_ERROR')
+      expect(getIdea('acme')?.idea).toBe('sell anvils')
+    })
+
+    test('returns 404 for an unknown idea', async () => {
+      // Act
+      const response = await patchIdeaRoute(
+        new Request('http://localhost/api/ideas/nope', {
+          method: 'PATCH',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ idea: 'anything' })
+        }),
+        params('nope')
+      )
+      const body = (await response.json()) as { error: { code: string } }
+
+      // Assert
+      expect(response.status).toBe(404)
+      expect(body.error.code).toBe('IDEA_NOT_FOUND')
+    })
+  })
+
+  describe('POST /api/ideas/[name]/exec', () => {
+    beforeEach(() => {
+      addIdea({
         name: 'acme',
         cellId: 'dev--v-acme',
         customerId: 'v-acme',
         createdAt: '2026-08-01T00:00:00.000Z',
-        snapshots: []
+        snapshots: [],
+        iterations: []
       })
     })
 
@@ -188,7 +260,7 @@ describe('API routes', () => {
 
       // Act
       const response = await execRoute(
-        jsonRequest('http://localhost/api/ventures/acme/exec', { cmd: 'node src/check.js' }),
+        jsonRequest('http://localhost/api/ideas/acme/exec', { cmd: 'node src/check.js' }),
         params('acme')
       )
       const body = (await response.json()) as { result: { exit_code: number; stdout: string } }
@@ -219,7 +291,7 @@ describe('API routes', () => {
 
       // Act
       const response = await execRoute(
-        jsonRequest('http://localhost/api/ventures/acme/exec', { cmd: 'true' }),
+        jsonRequest('http://localhost/api/ideas/acme/exec', { cmd: 'true' }),
         params('acme')
       )
       const body = (await response.json()) as {
@@ -235,23 +307,23 @@ describe('API routes', () => {
       })
     })
 
-    test('returns 404 for a venture that is not registered', async () => {
+    test('returns 404 for an idea that is not registered', async () => {
       // Act
       const response = await execRoute(
-        jsonRequest('http://localhost/api/ventures/nope/exec', { cmd: 'true' }),
+        jsonRequest('http://localhost/api/ideas/nope/exec', { cmd: 'true' }),
         params('nope')
       )
       const body = (await response.json()) as { error: { code: string } }
 
       // Assert
       expect(response.status).toBe(404)
-      expect(body.error.code).toBe('VENTURE_NOT_FOUND')
+      expect(body.error.code).toBe('IDEA_NOT_FOUND')
     })
 
     test('rejects an empty command with a validation error', async () => {
       // Act
       const response = await execRoute(
-        jsonRequest('http://localhost/api/ventures/acme/exec', { cmd: '' }),
+        jsonRequest('http://localhost/api/ideas/acme/exec', { cmd: '' }),
         params('acme')
       )
       const body = (await response.json()) as { error: { code: string } }

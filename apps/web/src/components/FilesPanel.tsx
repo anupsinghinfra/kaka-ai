@@ -29,7 +29,7 @@ export function FilesPanel({ name }: FilesPanelProps) {
       try {
         const query = path.length > 0 ? `?path=${encodeURIComponent(path)}` : ''
         const data = await apiFetch<{ entries: FileEntry[] }>(
-          `/api/ventures/${encodeURIComponent(name)}/files${query}`
+          `/api/ideas/${encodeURIComponent(name)}/files${query}`
         )
         setDirs((previous) => ({
           ...previous,
@@ -65,7 +65,7 @@ export function FilesPanel({ name }: FilesPanelProps) {
     setViewerError(undefined)
     try {
       const data = await apiFetch<{ path: string; content: string }>(
-        `/api/ventures/${encodeURIComponent(name)}/files?read=${encodeURIComponent(path)}`
+        `/api/ideas/${encodeURIComponent(name)}/files?read=${encodeURIComponent(path)}`
       )
       setSelected(data)
     } catch (readError: unknown) {

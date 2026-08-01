@@ -6,8 +6,9 @@ import type { ReactNode } from 'react'
 import './globals.css'
 
 export const metadata: Metadata = {
-  title: 'kaka — venture platform',
-  description: 'You bring an idea. The platform builds, launches, and iterates.'
+  title: 'kaka — type an idea, get a product',
+  description:
+    'Type your startup idea. Watch it become a working product. Then watch it keep improving itself.'
 }
 
 interface RootLayoutProps {
@@ -22,7 +23,7 @@ export default function RootLayout({ children }: RootLayoutProps) {
           <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
             <Link href="/" className="flex items-baseline gap-2">
               <span className="text-lg font-semibold tracking-tight text-fg">kaka</span>
-              <span className="text-xs uppercase tracking-[0.22em] text-gold">venture platform</span>
+              <span className="text-xs uppercase tracking-[0.22em] text-gold">idea → product</span>
             </Link>
             <span className="font-mono text-xs text-faint">local</span>
           </div>

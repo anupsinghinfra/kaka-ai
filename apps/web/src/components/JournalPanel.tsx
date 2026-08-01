@@ -15,7 +15,7 @@ export function JournalPanel({ name }: JournalPanelProps) {
     setError(undefined)
     try {
       const data = await apiFetch<{ entries: unknown[] }>(
-        `/api/ventures/${encodeURIComponent(name)}/journal`
+        `/api/ideas/${encodeURIComponent(name)}/journal`
       )
       setEntries(data.entries)
     } catch (loadError: unknown) {

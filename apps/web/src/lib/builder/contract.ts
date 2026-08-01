@@ -68,7 +68,7 @@ export function builderSystemPrompt(): string {
 /** User prompt for a build request. */
 export function builderUserPrompt(name: string, idea: string): string {
   return [
-    `Venture name: ${name}`,
+    `Idea name: ${name}`,
     '',
     'Idea:',
     idea,

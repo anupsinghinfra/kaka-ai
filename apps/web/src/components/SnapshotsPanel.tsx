@@ -32,7 +32,7 @@ export function SnapshotsPanel({ name, snapshots }: SnapshotsPanelProps) {
     setIsBusy(true)
     setError(undefined)
     try {
-      await apiFetch(`/api/ventures/${encodeURIComponent(name)}/snapshot`, { method: 'POST' })
+      await apiFetch(`/api/ideas/${encodeURIComponent(name)}/snapshot`, { method: 'POST' })
       router.refresh()
     } catch (snapshotError: unknown) {
       setError(describeError(snapshotError))
@@ -52,7 +52,7 @@ export function SnapshotsPanel({ name, snapshots }: SnapshotsPanelProps) {
       {error !== undefined && <p className="mb-3 text-sm text-bad">{error}</p>}
       {snapshots.length === 0 ? (
         <p className="font-mono text-xs text-faint">
-          No snapshots yet. A snapshot captures the whole venture at a point in time.
+          No snapshots yet. A snapshot captures the whole idea — app, files, and state — at a point in time.
         </p>
       ) : (
         <ul className="flex flex-col gap-1.5">

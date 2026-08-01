@@ -11,6 +11,7 @@ import {
   OnCellInputError
 } from '@platform/oncell'
 import { ZodError } from 'zod'
+import { BuilderResponseError } from './builder/model'
 
 export interface ApiErrorBody {
   readonly error: {
@@ -74,4 +75,57 @@ export async function readJsonBody(request: Request): Promise<unknown> {
   } catch {
     return undefined
   }
+}
+
+/** Maps build/improve stream failures to the machine-readable error shape. */
+export function toStreamError(error: unknown): ApiErrorBody['error'] {
+  if (error instanceof BuilderResponseError) {
+    return {
+      code: 'BUILDER_INVALID_OUTPUT',
+      message: error.message,
+      remediation: 'Try again, or refine the idea to something smaller.'
+    }
+  }
+  if (error instanceof OnCellApiError) {
+    return {
+      code: error.code ?? 'ONCELL_API_ERROR',
+      message: error.message,
+      ...(error.remediation !== undefined ? { remediation: error.remediation } : {})
+    }
+  }
+  return {
+    code: 'BUILD_FAILED',
+    message: error instanceof Error ? error.message : String(error)
+  }
+}
+
+/**
+ * Streams NDJSON progress events. The handler emits stage events; a thrown
+ * error is emitted as a final {stage: "error"} event via `toStreamError`.
+ */
+export function ndjsonResponse(
+  handler: (emit: (event: object) => void) => Promise<void>
+): Response {
+  const encoder = new TextEncoder()
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const emit = (event: object): void => {
+        controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`))
+      }
+      try {
+        await handler(emit)
+      } catch (error: unknown) {
+        emit({ stage: 'error', error: toStreamError(error) })
+      } finally {
+        controller.close()
+      }
+    }
+  })
+  return new Response(stream, {
+    status: 200,
+    headers: {
+      'content-type': 'application/x-ndjson; charset=utf-8',
+      'cache-control': 'no-store'
+    }
+  })
 }

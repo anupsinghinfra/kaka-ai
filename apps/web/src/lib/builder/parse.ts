@@ -90,12 +90,15 @@ export function validateBuilderApp(candidate: unknown): ParseResult {
 
 /**
  * Extracts and validates the Builder payload from a model response's
- * content blocks: the emit_app tool_use input first, then a fenced JSON
- * block in the text.
+ * content blocks: the named tool_use input first (emit_app for builds,
+ * emit_improvement for improvements), then a fenced JSON block in the text.
  */
-export function parseBuilderResponse(content: readonly ContentBlockLike[]): ParseResult {
+export function parseBuilderResponse(
+  content: readonly ContentBlockLike[],
+  toolName: string = BUILDER_TOOL_NAME
+): ParseResult {
   const toolBlock = content.find(
-    (block) => block.type === 'tool_use' && block.name === BUILDER_TOOL_NAME
+    (block) => block.type === 'tool_use' && block.name === toolName
   )
   if (toolBlock !== undefined) {
     return validateBuilderApp(toolBlock.input)
@@ -108,7 +111,7 @@ export function parseBuilderResponse(content: readonly ContentBlockLike[]): Pars
   const fenced = FENCED_JSON_RE.exec(text)
   const rawJson = fenced !== null ? fenced[1] : text.trim().startsWith('{') ? text.trim() : undefined
   if (rawJson === undefined) {
-    return fail(`response contained neither a ${BUILDER_TOOL_NAME} tool call nor a fenced JSON block`)
+    return fail(`response contained neither a ${toolName} tool call nor a fenced JSON block`)
   }
   let candidate: unknown
   try {

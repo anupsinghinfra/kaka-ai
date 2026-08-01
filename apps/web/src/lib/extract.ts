@@ -2,8 +2,13 @@
  * Tolerant extraction of values from OnCell request-helper results. The
  * public API does not pin the request-method response shapes, so these
  * helpers accept the plausible encodings (bare value, {content}/{value}
- * field, or the same nested under a {result} envelope). Mirrors the
- * scripts/venture extraction conventions.
+ * field, or the same nested under a {result} envelope).
+ *
+ * File listings are the trickiest: list_files may return a per-directory
+ * listing of bare names, a flat list of fully-qualified relative paths, or
+ * a nested tree with children. extractFileEntries normalizes ALL of these
+ * into direct children of the requested directory with FULL relative paths
+ * preserved, so the tree can always read a file by its real path.
  */
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -36,58 +41,130 @@ export interface FileEntry {
   readonly type: 'file' | 'dir'
 }
 
-function joinCellPath(parent: string, name: string): string {
-  if (parent.length === 0 || parent === '.' || parent === '/') {
-    return name
-  }
-  return `${parent.replace(/\/$/, '')}/${name}`
+/** Strips leading "./" and "/", trailing "/", and empty segments. */
+function cleanPath(raw: string): string {
+  return raw
+    .replace(/^\.\//, '')
+    .split('/')
+    .filter((segment) => segment.length > 0 && segment !== '.')
+    .join('/')
 }
 
-function entryFromUnknown(parent: string, value: unknown): FileEntry | undefined {
+function joinPaths(base: string, relative: string): string {
+  if (base.length === 0) {
+    return relative
+  }
+  return relative.length === 0 ? base : `${base}/${relative}`
+}
+
+interface CollectedPath {
+  readonly path: string
+  readonly isDir: boolean
+}
+
+const CHILD_LIST_KEYS = ['files', 'entries', 'children', 'items', 'tree'] as const
+
+/**
+ * Recursively collects (path, isDir) pairs from whatever shape list_files
+ * returned: strings, records with name/path/type, wrapper objects, and
+ * nested trees with children. `base` is the path context for bare names.
+ */
+function collectPaths(value: unknown, base: string, out: CollectedPath[]): void {
   if (typeof value === 'string') {
     const isDir = value.endsWith('/')
-    const name = value.replace(/\/$/, '').split('/').filter(Boolean).pop() ?? value
-    return { name, path: joinCellPath(parent, name), type: isDir ? 'dir' : 'file' }
+    const cleaned = cleanPath(value)
+    if (cleaned.length > 0) {
+      // Fully-qualified names carry their own directories; bare names are
+      // relative to the listing context.
+      out.push({ path: joinPaths(base, cleaned), isDir })
+    }
+    return
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectPaths(item, base, out)
+    }
+    return
   }
   if (!isRecord(value)) {
-    return undefined
+    return
   }
-  const rawName =
-    typeof value['name'] === 'string'
-      ? value['name']
-      : typeof value['path'] === 'string'
-        ? value['path']
-        : undefined
-  if (rawName === undefined || rawName.length === 0) {
-    return undefined
+  const rawPath = typeof value['path'] === 'string' ? value['path'] : undefined
+  const rawName = typeof value['name'] === 'string' ? value['name'] : undefined
+  const raw = rawPath ?? rawName
+  let entryPath: string | undefined
+  if (raw !== undefined) {
+    const cleaned = cleanPath(raw)
+    if (cleaned.length > 0) {
+      // An explicit path field is authoritative; a name is base-relative.
+      entryPath = rawPath !== undefined ? cleaned : joinPaths(base, cleaned)
+      const typeField = value['type']
+      const hasChildren = Array.isArray(value['children'])
+      const isDir =
+        typeField === 'dir' ||
+        typeField === 'directory' ||
+        value['is_dir'] === true ||
+        value['isDirectory'] === true ||
+        raw.endsWith('/') ||
+        hasChildren
+      out.push({ path: entryPath, isDir })
+    }
   }
-  const name = rawName.replace(/\/$/, '').split('/').filter(Boolean).pop() ?? rawName
-  const typeField = value['type']
-  const isDir =
-    typeField === 'dir' ||
-    typeField === 'directory' ||
-    value['is_dir'] === true ||
-    value['isDirectory'] === true ||
-    (typeof rawName === 'string' && rawName.endsWith('/'))
-  const path = typeof value['path'] === 'string' ? value['path'] : joinCellPath(parent, name)
-  return { name, path, type: isDir ? 'dir' : 'file' }
+  for (const key of CHILD_LIST_KEYS) {
+    const nested = value[key]
+    if (Array.isArray(nested)) {
+      collectPaths(nested, entryPath ?? base, out)
+    }
+  }
 }
 
-/** Normalizes a list_files result into sorted directory entries. */
-export function extractFileEntries(parent: string, result: unknown): readonly FileEntry[] {
-  const unwrapped = unwrapResult(result)
-  let rawEntries: readonly unknown[] = []
-  if (Array.isArray(unwrapped)) {
-    rawEntries = unwrapped
-  } else if (isRecord(unwrapped) && Array.isArray(unwrapped['files'])) {
-    rawEntries = unwrapped['files']
-  } else if (isRecord(unwrapped) && Array.isArray(unwrapped['entries'])) {
-    rawEntries = unwrapped['entries']
+/**
+ * Resolves a collected path against the listed directory. Paths already
+ * qualified under `parent` stay as-is; anything else is treated as relative
+ * to `parent` (per-directory listings return bare names).
+ */
+function qualifyAgainstParent(parent: string, path: string): string {
+  if (parent.length === 0) {
+    return path
   }
-  const entries = rawEntries
-    .map((entry) => entryFromUnknown(parent, entry))
-    .filter((entry): entry is FileEntry => entry !== undefined)
-  return [...entries].sort((a, b) => {
+  if (path === parent || path.startsWith(`${parent}/`)) {
+    return path
+  }
+  return `${parent}/${path}`
+}
+
+/**
+ * Normalizes a list_files result into the direct children of `parent`,
+ * each with its full relative path. Files nested deeper than one level
+ * surface as synthesized directory entries so lazy trees can descend.
+ */
+export function extractFileEntries(parent: string, result: unknown): readonly FileEntry[] {
+  const cleanParent = cleanPath(parent)
+  const collected: CollectedPath[] = []
+  collectPaths(unwrapResult(result), '', collected)
+
+  const byPath = new Map<string, FileEntry>()
+  for (const item of collected) {
+    const full = qualifyAgainstParent(cleanParent, item.path)
+    if (full === cleanParent) {
+      continue
+    }
+    const relative =
+      cleanParent.length === 0 ? full : full.slice(cleanParent.length + 1)
+    if (!full.startsWith(cleanParent.length === 0 ? '' : `${cleanParent}/`) || relative.length === 0) {
+      continue
+    }
+    const segments = relative.split('/')
+    const childName = segments[0] as string
+    const childPath = joinPaths(cleanParent, childName)
+    const isDir = segments.length > 1 ? true : item.isDir
+    const existing = byPath.get(childPath)
+    if (existing === undefined || (existing.type === 'file' && isDir)) {
+      byPath.set(childPath, { name: childName, path: childPath, type: isDir ? 'dir' : 'file' })
+    }
+  }
+
+  return [...byPath.values()].sort((a, b) => {
     if (a.type !== b.type) {
       return a.type === 'dir' ? -1 : 1
     }

@@ -38,7 +38,7 @@ export function ConsolePanel({ name }: ConsolePanelProps) {
     const id = Date.now()
     try {
       const data = await apiFetch<{ result: ExecView }>(
-        `/api/ventures/${encodeURIComponent(name)}/exec`,
+        `/api/ideas/${encodeURIComponent(name)}/exec`,
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },

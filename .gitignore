@@ -21,3 +21,5 @@ coverage/
 
 # External reference clone (not project code)
 ECC/
+
+apps/web/.next/
