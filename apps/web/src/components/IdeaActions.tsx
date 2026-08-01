@@ -65,7 +65,7 @@ export function IdeaActions({ name }: IdeaActionsProps) {
     await run(async () => {
       const query = keepRemote ? '?keep_remote=true' : ''
       await apiFetch(`/api/ideas/${encodeURIComponent(name)}${query}`, { method: 'DELETE' })
-      router.push('/')
+      router.push('/ideas')
       router.refresh()
     })
   }

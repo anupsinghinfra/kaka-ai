@@ -3,6 +3,7 @@ import type { Construct } from 'constructs'
 import { FoundationStack } from './foundation/foundation-stack'
 import type { PlatformConfig } from './platform-config'
 import { RegistryStack } from './control-plane/registry-stack'
+import { AuthStack } from './foundation/auth-stack'
 import { EventsStack } from './primitives/events/events-stack'
 import { NetworkStack } from './primitives/network/network-stack'
 import { TokenServiceStack } from './primitives/secrets/token-service-stack'
@@ -24,6 +25,8 @@ export class ProdStage extends Stage {
     new FoundationStack(this, 'Foundation', {
       platformDomain: props.config.platformDomain
     })
+
+    new AuthStack(this, 'Auth')
 
     const events = new EventsStack(this, 'Events')
 

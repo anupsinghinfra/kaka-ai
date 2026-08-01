@@ -31,7 +31,7 @@ const DIRECT_CONTEXT = {
   pipelineRepo: 'REPLACE_ME_GITHUB_OWNER_AND_REPO'
 }
 
-const EXPECTED_PROD_STACKS = ['Foundation', 'Events', 'TokenService', 'Network', 'Registry']
+const EXPECTED_PROD_STACKS = ['Foundation', 'Auth', 'Events', 'TokenService', 'Network', 'Registry']
 
 let template: Template
 

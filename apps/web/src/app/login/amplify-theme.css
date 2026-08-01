@@ -1,0 +1,110 @@
+/*
+ * Amplify Authenticator theming — maps Amplify's CSS design tokens onto the
+ * kaka palette (tailwind.config.ts): ink #0b0a09, panel #131210, raised
+ * #1a1815, edge #26231e, fg #f0eadd, muted #8f887a, faint #5c574d, gold
+ * #d4a54a, bad #d96a6a. Technique mirrors the reference implementation:
+ * override --amplify-* variables at the authenticator root, then patch the
+ * few components the variables don't reach.
+ */
+
+[data-amplify-authenticator] {
+  --amplify-colors-background-primary: #131210;
+  --amplify-colors-background-secondary: #1a1815;
+  --amplify-colors-background-tertiary: #1a1815;
+  --amplify-colors-font-primary: #f0eadd;
+  --amplify-colors-font-secondary: #8f887a;
+  --amplify-colors-font-tertiary: #5c574d;
+  --amplify-colors-font-interactive: #d4a54a;
+  --amplify-colors-font-hover: #e0b866;
+  --amplify-colors-font-focus: #d4a54a;
+  --amplify-colors-font-active: #d4a54a;
+  --amplify-colors-font-error: #d96a6a;
+  --amplify-colors-border-primary: #26231e;
+  --amplify-colors-border-secondary: #26231e;
+  --amplify-colors-border-tertiary: #26231e;
+  --amplify-colors-border-focus: rgba(212, 165, 74, 0.6);
+  --amplify-colors-border-error: rgba(217, 106, 106, 0.5);
+  --amplify-colors-brand-primary-10: rgba(212, 165, 74, 0.1);
+  --amplify-colors-brand-primary-20: rgba(212, 165, 74, 0.2);
+  --amplify-colors-brand-primary-40: rgba(212, 165, 74, 0.4);
+  --amplify-colors-brand-primary-60: rgba(212, 165, 74, 0.6);
+  --amplify-colors-brand-primary-80: #d4a54a;
+  --amplify-colors-brand-primary-90: #e0b866;
+  --amplify-colors-brand-primary-100: #e8c47c;
+  --amplify-colors-overlay-10: rgba(240, 234, 221, 0.05);
+  --amplify-components-authenticator-router-background-color: #131210;
+  --amplify-components-authenticator-router-border-color: #26231e;
+  --amplify-components-authenticator-router-box-shadow: none;
+  --amplify-components-authenticator-state-inactive-background-color: #0b0a09;
+  --amplify-components-tabs-item-color: #8f887a;
+  --amplify-components-tabs-item-active-color: #d4a54a;
+  --amplify-components-tabs-item-active-border-color: #d4a54a;
+  --amplify-components-tabs-item-hover-color: #e0b866;
+  --amplify-components-tabs-item-focus-color: #d4a54a;
+  --amplify-components-tabs-border-color: #26231e;
+  --amplify-components-button-color: #f0eadd;
+  --amplify-components-button-border-color: #26231e;
+  --amplify-components-button-hover-background-color: rgba(212, 165, 74, 0.08);
+  --amplify-components-button-hover-border-color: rgba(212, 165, 74, 0.6);
+  --amplify-components-button-hover-color: #d4a54a;
+  --amplify-components-button-focus-background-color: rgba(212, 165, 74, 0.08);
+  --amplify-components-button-focus-border-color: rgba(212, 165, 74, 0.6);
+  --amplify-components-button-focus-color: #d4a54a;
+  --amplify-components-button-active-background-color: rgba(212, 165, 74, 0.15);
+  --amplify-components-button-active-color: #d4a54a;
+  --amplify-components-button-primary-background-color: rgba(212, 165, 74, 0.12);
+  --amplify-components-button-primary-border-color: rgba(212, 165, 74, 0.7);
+  --amplify-components-button-primary-color: #d4a54a;
+  --amplify-components-button-primary-hover-background-color: rgba(212, 165, 74, 0.22);
+  --amplify-components-button-primary-hover-border-color: #d4a54a;
+  --amplify-components-button-primary-hover-color: #e0b866;
+  --amplify-components-button-primary-focus-background-color: rgba(212, 165, 74, 0.22);
+  --amplify-components-button-primary-focus-color: #e0b866;
+  --amplify-components-button-primary-active-background-color: rgba(212, 165, 74, 0.3);
+  --amplify-components-button-primary-active-color: #e8c47c;
+  --amplify-components-button-link-color: #8f887a;
+  --amplify-components-button-link-hover-color: #d4a54a;
+  --amplify-components-button-link-hover-background-color: transparent;
+  --amplify-components-button-link-focus-background-color: transparent;
+  --amplify-components-button-link-focus-color: #d4a54a;
+  --amplify-components-button-link-active-background-color: transparent;
+  --amplify-components-button-link-active-color: #e0b866;
+  --amplify-components-fieldcontrol-color: #f0eadd;
+  --amplify-components-fieldcontrol-border-color: #26231e;
+  --amplify-components-fieldcontrol-focus-border-color: rgba(212, 165, 74, 0.6);
+  --amplify-components-fieldcontrol-focus-box-shadow: 0 0 0 1px rgba(212, 165, 74, 0.35);
+  --amplify-components-field-label-color: #8f887a;
+  --amplify-components-text-error-color: #d96a6a;
+  --amplify-components-heading-color: #f0eadd;
+  --amplify-components-alert-error-background-color: rgba(217, 106, 106, 0.1);
+  --amplify-components-alert-error-color: #d96a6a;
+  --amplify-components-passwordfield-button-color: #8f887a;
+  --amplify-components-passwordfield-button-hover-color: #d4a54a;
+  --amplify-components-passwordfield-button-hover-background-color: transparent;
+  --amplify-components-passwordfield-button-hover-border-color: rgba(212, 165, 74, 0.6);
+  --amplify-radii-small: 0.375rem;
+  --amplify-radii-medium: 0.5rem;
+}
+
+/* The card and form container sit on the app's panel surface. */
+[data-amplify-authenticator] [data-amplify-router] {
+  border-radius: 0.5rem;
+}
+
+/* Inputs match the app's .field styling (ink surface, edge border). */
+[data-amplify-authenticator] .amplify-input,
+[data-amplify-authenticator] .amplify-select {
+  background-color: #0b0a09;
+}
+
+/* Amplify renders the show/hide password button with its own border. */
+[data-amplify-authenticator] .amplify-field__show-password {
+  background-color: #0b0a09;
+  border-color: #26231e;
+}
+
+/* Error alert border, unreachable via tokens. */
+[data-amplify-authenticator] .amplify-alert--error {
+  border: 1px solid rgba(217, 106, 106, 0.5);
+  border-radius: 0.5rem;
+}
