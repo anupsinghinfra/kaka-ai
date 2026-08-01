@@ -1,100 +1,98 @@
-# kaka — the Autonomous Venture Platform
+# kaka
 
-**You bring an idea. The platform builds the product, launches it, markets it,
-and iterates on it — autonomously. Humans steer; agents execute.**
+**Type your startup idea. An AI agent builds it into a working product, serves
+it at a URL, and keeps improving it — version after version — on its own.**
 
-kaka is an open-source platform for running *ventures*: everything a
-one-person startup owns — spec, code, data, deployments, distribution,
-analytics — operated by a team of AI agents with humans at exactly three
-touchpoints (approve the spec, set the budget, approve irreversible actions).
-Every agent change is a full branch of the venture (code + files + database,
-atomically); promotion is a pointer flip; growth is a closed loop from
-real analytics back into the next build.
+You write one sentence. kaka deploys a Builder agent whose whole job is that
+idea: it writes real code (no templates), proves every version runs before
+shipping it, starts the app, and hands you a link. Turn on auto-improve and it
+schedules its own next revision — grounded in the app's runtime logs, with
+observed errors outranking new features. You can steer any revision by telling
+it what to ship next. Every change is snapshotted first, and any idea can be
+**forked** — code, files, and database, atomically — to try a different
+direction without risking the original.
 
-Status: early. The design is complete (see docs below), the platform rails
-(M0) build and test green, and the M1 heartbeat — create a venture, build it,
-snapshot it, **fork it atomically**, change it on the branch — runs against
-production OnCell in under 3 seconds (`pnpm golden-path`).
+```
+you:    "A habit tracker where you check off daily habits and watch
+         your streaks grow — with a satisfying visual streak calendar"
 
-Start with the docs:
+agent:  ⚙ cells_write_file src/server.js
+        ⚙ cells_write_file public/index.html
+        ⚙ cells_exec node src/check.js   → CHECK_OK
+        live → https://…cells.oncell.ai
 
-- [ARCHITECTURE.md](./ARCHITECTURE.md) — primitives and contracts
-- [PLAN.md](./PLAN.md) — target-state AWS implementation plan
-- [EXECUTION.md](./EXECUTION.md) — lean path to market
-- [TASKS.md](./TASKS.md) — task breakdown
+        v1  Launched HabitStreak: add/delete habits, one-tap daily
+            check-in, live streak counter, and a 70-day visual streak
+            calendar you can click to backfill any day.   ✓ check passed
+```
 
-## Built on OnCell
+## Quickstart
 
-kaka is a **customer of [OnCell](https://oncell.ai)** — it consumes OnCell's
-public API with a customer API key, exactly like any outside platform builder.
-No shared internals, even where the repos share an author.
+Requirements: Node 20+, pnpm 8+, and an [OnCell](https://oncell.ai) API key
+(the agent runtime kaka runs on — sign up, create a key in the dashboard).
 
-The core mapping: **a venture is a cell.** An OnCell cell is a persistent,
-isolated workspace+state unit — files, a SQLite database, a journal — that can
-be exec'd into, snapshotted, and forked atomically. That is precisely the
-venture platform's "everything is a branch" primitive:
+```sh
+git clone https://github.com/anupsinghinfra/kaka-ai && cd kaka-ai
+pnpm install
+cp .env.example .env          # paste your ONCELL_API_KEY
+pnpm web                      # → http://localhost:3000
+```
 
-| Venture operation | OnCell API call |
-|---|---|
-| create venture | `POST /api/v1/cells {customer_id}` |
-| write/read code & files | `POST /cells/{id}/request` (`write_file`, `read_file`, `list_files`) |
-| build / test / run | `POST /cells/{id}/exec {cmd, idempotency_key}` |
-| venture state (DB) | `request` (`db_get` / `db_set`) + SQLite files in the workspace |
-| checkpoint | `POST /cells/{id}/snapshot` (pinned, never GC'd) |
-| **branch the venture** | `POST /cells/{id}/fork` — code + files + database, atomically |
-| idle economics | automatic — idle cells pause to ~$0, resume on demand |
-| preview URL | `preview_url` on the cell record (host-side app serving pending) |
+Type an idea, hit **Start building**, and watch the activity feed — every file
+the agent writes, every check it runs, the running cost — until the gold
+"Open your product ↗" button appears.
 
-What kaka therefore does **not** build: compute isolation, a filesystem
-primitive, database branching, snapshot/restore, idle eviction. Those were all
-on the original build list (see PLAN.md) and are now one API key.
+## How it works
 
-What kaka keeps (venture semantics, on top): the venture registry and
-manifest, the orchestrator, the agent team (Builder/Verifier/Marketer/
-Analyst — themselves OnCell agents, eventually), distribution primitives
-(domains, email, payments, analytics), budgets/policy, and edge routing.
+Each idea gets two things:
 
-Config: `ONCELL_API_KEY` + `ONCELL_API_URL` in `.env` (gitignored).
+- **An isolated world** — filesystem, SQLite database, and journal — where the
+  product lives and runs. Snapshot it, fork it, exec in it. Idle worlds cost
+  ~nothing and wake on demand; the product's URL stays live.
+- **A Builder agent** — deployed per idea with an identity (your idea text
+  embedded, a daily spend budget), tools scoped to its world, and one skill:
+  ship the single most user-felt improvement per revision. It records every
+  version's changelog, verifies with a self-test, and can schedule its own
+  future work — durably, surviving crashes and restarts.
 
-## Layout
+kaka's web app is the founder's cockpit: the idea, the live URL, the version
+timeline, a steering input ("tell it what to ship next"), the auto-improve
+toggle, and an "under the hood" view (console, files, journal, snapshots).
+
+Both the worlds and the agents run on OnCell; kaka talks to it purely through
+its public API with your key. Builds are metered through OnCell's LLM gateway,
+so kaka itself needs no model API key (a local builder mode exists behind
+`KAKA_BUILDER_MODE=local` if you'd rather bring your own `ANTHROPIC_API_KEY`).
+
+## Repo layout
 
 | Path | Purpose |
 |---|---|
-| `infra/` | AWS CDK v2 app (TypeScript). All infrastructure, IaC-only. |
-| `contracts/` | JSON Schemas + hand-written TypeScript types per primitive. |
-| `libs/` | Shared libraries: `authorizer`, `events`, `routing`, `oncell` (the OnCell client). |
-| `services/` | Platform services (`token-service`, `registry`). |
-| `scripts/venture/` | The golden path: create → build → snapshot → fork → verify, against production OnCell. |
+| `apps/web/` | The product: Next.js app — dashboard, idea pages, build/improve orchestration, activity feed. |
+| `libs/oncell/` | Typed client for the OnCell API (cells, exec, snapshots, fork, agents, run feed). |
+| `libs/` (rest) | Platform libraries: `authorizer`, `events`, `routing`. |
+| `services/` | Platform services (capability token service, venture registry). |
+| `infra/` | AWS CDK app (optional): Cognito auth stack, event bus, edge routing, deploy pipeline. |
+| `scripts/venture/` | The golden path: create → build → snapshot → fork → verify, end to end. |
+| `ARCHITECTURE.md` | The long-range design: the autonomous venture platform this grows into. |
 
-## Prerequisites
+## Optional pieces
 
-Node 20+ (`.nvmrc`), pnpm 8+.
+- **Auth**: without Cognito env vars the app runs in local single-user mode
+  (no sign-in). Deploy `infra/`'s AuthStack and set the three
+  `NEXT_PUBLIC_COGNITO_*` vars for real sign-up/sign-in.
+- **Golden path**: `pnpm golden-path` exercises the whole loop against
+  production — creates a world, builds and runs an app in it, snapshots,
+  forks, proves code + files + database survived the fork, and cleans up.
 
 ## Commands
 
 ```sh
-pnpm install        # install all workspace packages
 pnpm -r build       # typecheck + compile every package
-pnpm -r test        # run every package's tests
-pnpm --dir infra cdk synth \
-  --context prodAccount=<account-id> \
-  --context prodRegion=<region> \
-  --context platformDomain=<domain>
+pnpm -r test        # every package's tests
+pnpm web            # run the app
+pnpm golden-path    # end-to-end proof against production
 ```
-
-Account, region, and platform domain come from CDK context (`infra/cdk.json` or `--context`); they are never hardcoded in stack code.
-
-## Try the golden path
-
-With an [OnCell](https://oncell.ai) API key in `.env` (`ONCELL_API_KEY=...`):
-
-```sh
-pnpm golden-path            # create → build → snapshot → fork → verify → cleanup
-```
-
-It creates a venture cell, writes and runs a real app inside it, snapshots,
-forks, proves the fork carries code + files + database state, edits the fork,
-and cleans up. All against production, in seconds.
 
 ## License
 
