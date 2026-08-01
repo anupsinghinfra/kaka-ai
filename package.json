@@ -10,7 +10,9 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "synth": "pnpm --dir infra synth",
-    "golden-path": "pnpm --dir scripts/venture golden-path"
+    "golden-path": "pnpm --dir scripts/venture golden-path",
+    "web": "pnpm --dir apps/web dev",
+    "web:build": "pnpm --dir apps/web build"
   },
   "devDependencies": {
     "tsx": "^4.19.2"

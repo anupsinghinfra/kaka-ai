@@ -4,3 +4,4 @@ packages:
   - contracts
   - libs/*
   - scripts/venture
+  - apps/*
