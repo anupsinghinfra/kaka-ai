@@ -59,8 +59,8 @@ describe('landing page', () => {
     const html = renderToStaticMarkup(<LandingPage />)
 
     // Assert
-    expect(html).toContain('Type your startup idea.')
-    expect(html).toContain('Watch it become a product.')
+    expect(html).toContain('You bring the startup idea.')
+    expect(html).toContain('AI agents build it.')
     expect(html).toContain('keeps improving itself')
     expect(html).toContain('Type the idea')
     expect(html).toContain('kaka builds and proves v1')
