@@ -7,7 +7,7 @@
  * adds over time.
  */
 
-/** Fixed OnCell tiers — no free-form resource requests (see docs/ONCELL_AUDIT.md). */
+/** Fixed OnCell tiers — no free-form resource requests. */
 export type CellTier = 'starter' | 'standard' | 'performance'
 
 /**

@@ -8,7 +8,7 @@
  *   state — a KV entry set pre-fork is present in the fork.
  *
  * NOTE: preview URL serving is not yet wired host-side (known OnCell gap —
- * docs/ONCELL_AUDIT.md). This run proves the branch triple, NOT HTTP serving;
+ * an OnCell-side gap). This run proves the branch triple, NOT HTTP serving;
  * the serve-from-cell leg joins the canary when OnCell closes that gap.
  *
  * Usage:  pnpm golden-path [-- <suffix>] [--keep]

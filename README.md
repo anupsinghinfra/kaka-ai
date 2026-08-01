@@ -22,7 +22,6 @@ Start with the docs:
 - [PLAN.md](./PLAN.md) — target-state AWS implementation plan
 - [EXECUTION.md](./EXECUTION.md) — lean path to market
 - [TASKS.md](./TASKS.md) — task breakdown
-- [docs/ONCELL_AUDIT.md](./docs/ONCELL_AUDIT.md) — OnCell primitive audit
 
 ## Built on OnCell
 

@@ -8,7 +8,7 @@
 
 1. **The demo is the strategy.** "Paragraph in → live, verified product at a URL" is the moment that sells. Everything before that moment is overhead; get there first, then deepen.
 2. **The differentiator is the loop, not codegen.** Codegen is a crowded market (we know — we're in it with JustCopy). Nobody else has *launch → measure → iterate autonomously*. So the loop must appear by M4, not "later."
-3. **Reuse ruthlessly.** OnCell = the Cells primitive, already built (idle eviction, snapshot/restore-from-S3, per-customer gVisor isolation on NVMe hosts). JustCopy V3 contract executor = a head start on the Builder. We are not starting at zero; we're starting at ~Phase 2. (See `docs/ONCELL_AUDIT.md` for the verified state of OnCell — notably: snapshot exists but isn't API-exposed, fork doesn't exist yet, and there are no lifecycle events or scoped tokens. Those are the OnCell-side work items.)
+3. **Reuse ruthlessly.** OnCell = the Cells primitive, already built (idle eviction, snapshot/restore-from-S3, per-customer gVisor isolation on NVMe hosts). JustCopy V3 contract executor = a head start on the Builder. We are not starting at zero; we're starting at ~Phase 2. (All of these have since shipped in OnCell: snapshot/fork/exec APIs, lifecycle events, scoped keys.)
 4. **Dogfood as GTM.** The platform's own landing page, launch posts, and email sequences are produced by a venture *running on the platform*. The product is its own proof.
 5. **Charge from the first external user.** Stripe is in M3, not a post-launch add-on. Willingness to pay is the only validation that counts.
 6. **Buy the undifferentiated — or delete it.** Per-venture database = SQLite in the venture workspace (zero marginal cost, and it makes venture forking atomic); Postgres is a graduation tier, not a launch dependency. Policy via simple scoped JWTs first. Own the moat (venture branching, the loop); rent or embed the rest under swappable contracts.
@@ -40,7 +40,7 @@ Every row keeps the **contract** from ARCHITECTURE.md — providers swap later w
 
 ### OnCell-side dependencies (built in OnCell, consumed here via its public API)
 
-Per the two-product boundary — OnCell owns tenant-scoped agent infrastructure; kaka owns venture semantics — these land on the **OnCell roadmap**, not kaka's. Audited state and exact insertion points: `docs/ONCELL_AUDIT.md` (gaps G1–G11). In build order for M1:
+Per the two-product boundary — OnCell owns tenant-scoped agent infrastructure; kaka owns venture semantics — these land on the **OnCell roadmap**, not kaka's. In build order for M1:
 
 1. **G1 — WAL checkpoint pre-snapshot hook** (required for M1; also fixes a live data-loss bug — WAL-mode DBs are synced to S3 without checkpoint or sidecars today).
 2. **G2/G3/G10 — snapshot as an API verb, fork, create-from-snapshot** (snapshot logic exists internally but has no route; fork does not exist yet — it is new work, not reuse).
@@ -49,7 +49,7 @@ Per the two-product boundary — OnCell owns tenant-scoped agent infrastructure;
 5. **G9 — exec verb with caller timeout + idempotency key** (no idempotency support exists anywhere in OnCell today).
 6. **G4/G5/G6 — workspaces, blob API + presigned URLs, per-tenant observability.**
 
-kaka consumes all of it through OnCell's public API only; no shared internals, even in the same account. Also resolve before M1: OnCell's gen-1 Rust host-agent (which owns cell snapshot/restore) currently has no CDK deployment path — the data plane deploys the gen-2 supervisor instead (audit §"Corrections", item 3).
+kaka consumes all of it through OnCell's public API only; no shared internals, even in the same account. (Historical note: all of the above has since shipped — OnCell converged on a single runtime with the full cells API.)
 
 ---
 
