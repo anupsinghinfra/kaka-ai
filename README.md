@@ -1,7 +1,20 @@
-# Autonomous Venture Platform (kaka)
+# kaka — the Autonomous Venture Platform
 
-The user brings an idea. The platform builds the product, launches it, markets
-it, and iterates on it — autonomously. Humans steer; agents execute.
+**You bring an idea. The platform builds the product, launches it, markets it,
+and iterates on it — autonomously. Humans steer; agents execute.**
+
+kaka is an open-source platform for running *ventures*: everything a
+one-person startup owns — spec, code, data, deployments, distribution,
+analytics — operated by a team of AI agents with humans at exactly three
+touchpoints (approve the spec, set the budget, approve irreversible actions).
+Every agent change is a full branch of the venture (code + files + database,
+atomically); promotion is a pointer flip; growth is a closed loop from
+real analytics back into the next build.
+
+Status: early. The design is complete (see docs below), the platform rails
+(M0) build and test green, and the M1 heartbeat — create a venture, build it,
+snapshot it, **fork it atomically**, change it on the branch — runs against
+production OnCell in under 3 seconds (`pnpm golden-path`).
 
 Start with the docs:
 
@@ -71,3 +84,19 @@ pnpm --dir infra cdk synth \
 ```
 
 Account, region, and platform domain come from CDK context (`infra/cdk.json` or `--context`); they are never hardcoded in stack code.
+
+## Try the golden path
+
+With an [OnCell](https://oncell.ai) API key in `.env` (`ONCELL_API_KEY=...`):
+
+```sh
+pnpm golden-path            # create → build → snapshot → fork → verify → cleanup
+```
+
+It creates a venture cell, writes and runs a real app inside it, snapshots,
+forks, proves the fork carries code + files + database state, edits the fork,
+and cleans up. All against production, in seconds.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
